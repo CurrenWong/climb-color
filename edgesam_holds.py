@@ -112,7 +112,9 @@ class EdgeSamHoldSegmenter:
         self,
         px: float, py: float,
         body_cx: float | None = None, body_cy: float | None = None,
-        num_multimask_outputs: int = 3,
+        num_multimask_outputs: int = 4,
+        use_box_prompt: bool = True,
+        box_half: int = 80,
         use_stability_score: bool = True,
         white_route_mode: bool = False,
         person_mask: np.ndarray | None = None,
@@ -124,6 +126,18 @@ class EdgeSamHoldSegmenter:
 
         white_route_mode: True 时加强负点密度 + 用更严的面积上限 + 降低 score 门槛。
         用于白岩点这类容易跟墙颜色重叠的场景。
+
+        use_box_prompt (默认 True)：
+          - True: 用 box prompt（端点周围 box_half*2 px 正方形）+ 1 个 center positive
+            point + 远处 negative points。让 EdgeSAM 在 box 内切"端点附近的物体"，
+            **不依赖 detect_holds**（HSV 颜色阈值体系）。
+          - False: 退回纯 point prompt（1+16 个 negative）。
+
+        box_half: box 半边长 (px)。默认 80 → 160x160 box。
+          太大贪心合并，太小涵盖不到完整 hold。
+
+        num_multimask_outputs (默认 4)：
+          EdgeSAM 候选 mask 数。1/3/4，越多越能选到"完整 hold shape" (m[2])。
 
         person_mask: HxW bool，YOLO26 攀岩者人体 mask。若提供：
           - 把 person_mask **边缘外**的点作为 negative prompt（让 EdgeSAM 把
@@ -154,7 +168,16 @@ class EdgeSamHoldSegmenter:
         if not self.predictor.is_image_set:
             raise RuntimeError("先调用 set_image() 再 segment_endpoint()")
 
-        # 正点 + 负点（白路线模式更激进）
+        # box prompt: 端点周围 box_half px 的方框
+        box = None
+        if use_box_prompt:
+            bx1 = max(0, int(round(px)) - box_half)
+            by1 = max(0, int(round(py)) - box_half)
+            bx2 = min(self.last_w - 1, int(round(px)) + box_half)
+            by2 = min(self.last_h - 1, int(round(py)) + box_half)
+            box = np.array([bx1, by1, bx2, by2], dtype=np.float64)
+
+        # 正点（端点）+ 负点（白路线模式更激进）
         neg = self._make_negative_prompts(
             px, py, body_cx, body_cy,
             white_route=white_route_mode,
@@ -172,7 +195,10 @@ class EdgeSamHoldSegmenter:
         ])
         point_labels = np.array([1] + [0] * len(neg), dtype=np.int64)
 
+        # EdgeSAM: box prompt（如果启用）+ 1 个 positive point + 多个 negative
+        # box + point 同时给是 SAM 支持的，与本 mask 选择策略兼容
         masks, scores, _ = self.predictor.predict(
+            box=box,
             point_coords=point_coords,
             point_labels=point_labels,
             num_multimask_outputs=num_multimask_outputs,
