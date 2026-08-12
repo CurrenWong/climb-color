@@ -89,7 +89,7 @@ img/N.jpg
     ┌─────────────────────────────────────────────────────────┐
     │ segment_endpoint(px, py, person_mask, …)                │
     │   input: box (端点±80px) + 1 正点 + 18 负点             │
-    │   EdgeSAM → 4 mask 候选 → 按 (-score, -area) 排序取最佳 │
+    │   EdgeSAM → 4 mask 候选 → 必须含端点 + 按 (-score,-area) │
     │   mask -= person_mask (18px 保护圈内保留)                │
     │   _keep_main_component  (只留含端点的连通域)             │
     │   _keep_endpoint_cluster  (k-means, 9.jpg 紫+白 hold)    │
@@ -127,8 +127,9 @@ result_edgesam_N.jpg
 **候选筛选**：
 - 面积 `100 < area < img_area * 0.3`（上限 30% 图，剔除大块）
 - `score >= 0.4`
-- 必须包含端点 — 端点本身在 person 内时放宽为"端点 40px 邻域非空"（5.jpg R_foot）
+- **必须包含端点**（距离考量隐式：不含端点的候选直接剔除；端点本身在 person 内时放宽为"端点 40px 邻域非空"——5.jpg R_foot）
 - 按 `(-score, -area)` 排序，选 best
+- 兜底：端点不在任何候选里 → 主连通域过滤取"距端点最近 + 高饱和亮色域 (S>100, V>80)"（5.jpg R_foot 远绳候选剔除）
 
 **mask 后处理**（关键，**判断与可视化共用**）：
 - `mask -= person_mask`（用**未膨胀**版，避免吞脚旁 hold —— 5.jpg L_foot 脚下橙点）
