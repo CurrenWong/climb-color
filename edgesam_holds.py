@@ -37,6 +37,11 @@ from yolo_person_mask import sample_edge_points  # noqa: E402  人体 mask → �
 DEFAULT_CHECKPOINT = "weights/edge_sam.pth"
 DEVICE_CPU = torch.device("cpu")
 
+# mask_subtract_person=True 时，端点周围保护圈半径 (px)。
+# 扣掉 person_mask 时保留端点附近这个小圆盘，避免"端点本身在人体内"导致
+# mask 不含端点而全部被过滤。圆圈内 = 人体像素也留着（hold 就在手指/脚附近）。
+PERSON_MASK_PROTECT_RADIUS = 18
+
 
 class EdgeSamHoldSegmenter:
     """EdgeSAM 包装：一次 set_image，多次 predict 端点 mask。"""
@@ -119,7 +124,7 @@ class EdgeSamHoldSegmenter:
         white_route_mode: bool = False,
         person_mask: np.ndarray | None = None,
         exclude_mask: np.ndarray | None = None,
-        mask_subtract_person: bool = False,
+        mask_subtract_person: bool = True,
     ) -> dict:
         """
         对 (px, py) 这个端点做 hold 分割。
@@ -221,12 +226,21 @@ class EdgeSamHoldSegmenter:
         score_min_main = 0.35 if white_route_mode else 0.4
         candidates = []
         for i, m in enumerate(masks):
-            # 如果提供 person_mask，先把 m 减去 person 区域（剥除身体/衣服泄漏）
+            # mask_subtract_person=True：把 mask 中 person_mask 像素剥除，
+            # 但保留端点周围 PERSON_MASK_PROTECT_RADIUS 的圆盘（否则端点被扣光，
+            # m_work[iy, ix] 恒 False → 全被过滤）。
+            # 核心价值：让"岩点 mask"与"人体"不重合 — 鞋/手/腿/衣服的像素被扣掉。
+            m_work = m.copy()
             if mask_subtract_person and person_mask is not None:
-                m_work = m.copy()
+                # 端点保护圈：mask 内保留以 (ix,iy) 为圆心、protect_radius 内的 person 像素
+                protect = person_mask.copy()
+                Y, X = np.ogrid[:self.last_h, :self.last_w]
+                dist = np.hypot(X - ix, Y - iy)
+                protect[(dist > PERSON_MASK_PROTECT_RADIUS) | (m == 0)] = False
+                # 保护圈内的人体像素先"摘出来"再减
+                keep_ring = m & protect
                 m_work[person_mask] = False
-            else:
-                m_work = m
+                m_work |= keep_ring
             area = int(m_work.sum())
             if area < 100:
                 continue
@@ -244,11 +258,15 @@ class EdgeSamHoldSegmenter:
             soft_area_cap = img_area * 0.45
             soft = []
             for i, m in enumerate(masks):
+                m_work = m.copy()
                 if mask_subtract_person and person_mask is not None:
-                    m_work = m.copy()
+                    protect = person_mask.copy()
+                    Y, X = np.ogrid[:self.last_h, :self.last_w]
+                    dist = np.hypot(X - ix, Y - iy)
+                    protect[(dist > PERSON_MASK_PROTECT_RADIUS) | (m == 0)] = False
+                    keep_ring = m & protect
                     m_work[person_mask] = False
-                else:
-                    m_work = m
+                    m_work |= keep_ring
                 area = int(m_work.sum())
                 if area < 50 or area > soft_area_cap:
                     continue
@@ -409,3 +427,4 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
         np.mean(np.sin(hr2)), np.mean(np.cos(hr2))
     )) / 2.0) % 180.0
     return (h_final, float(np.median(sats)), float(np.median(vals)))
+
