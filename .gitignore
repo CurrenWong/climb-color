@@ -1,0 +1,50 @@
+# Task files (MediaPipe models)
+*.task
+*.tflite
+
+# Image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+
+# Video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+
+# Archive files
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment / secrets
+.env
+.env.local
+*.log
