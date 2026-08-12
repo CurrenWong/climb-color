@@ -314,7 +314,7 @@ class EdgeSamHoldSegmenter:
         # 区域（1.jpg R_hand: 含端点的紫色 hold 3485px + 远处黄色 hold 2136px
         # + 碎片共 10 域）。攀岩者只接触一个 hold，取**包含端点的连通域**
         # （端点代表正在接触的 hold）。若端点不在 mask 内，取最大连通域。
-        chosen = _keep_main_component(chosen, px, py)
+        chosen = _keep_main_component(chosen, px, py, self.last_image_bgr)
 
         # 颜色聚类剔除：EdgeSAM 的 mask 有时把端点附近的"异色岩点/杂质"圈进来
         # （如 9.jpg R_hand：紫色岩点 + 白色 hold 共用一个 mask）。做 k-means 聚类，
@@ -378,18 +378,21 @@ class EdgeSamHoldSegmenter:
 # mask → 主连通域过滤（判断与可视化一致：只保留含端点的连通域）
 # ============================================================
 def _keep_main_component(mask: np.ndarray, px: float, py: float,
+                         image_bgr: np.ndarray | None = None,
                          min_area: int = 40) -> np.ndarray:
     """
     EdgeSAM 的 mask 可含多个不相连区域（1.jpg R_hand：含端点紫色 hold 3485px
     + 远处黄色 hold 2136px + 碎片共 10 域）。攀岩者只接触一个 hold，
     只保留**包含端点的连通域**（端点代表正在接触的 hold）。
 
-    若端点不在 mask 内（被 person 扣掉），取面积最大的连通域。
-    若 mask 本来就单域，原样返回。
+    若端点不在 mask 内（被 person 扣掉，5.jpg R_foot 脚在 person 内而
+    hold 在脚下 person 外），取"距端点最近 + 高饱和亮色"的连通域 ——
+    脚/鞋在端点附近但暗（S 低），真正的 hold 距端点略远但高饱和亮色。
+    不能取"面积最大"：5.jpg 候选3 的最大连通域 (658px) 是左侧的绳/衣物。
     """
     if mask.sum() < 50:
         return mask
-    n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(
+    n_lbl, labels, stats, cent = cv2.connectedComponentsWithStats(
         mask.astype(np.uint8), 8)
     if n_lbl <= 2:
         return mask
@@ -402,7 +405,43 @@ def _keep_main_component(mask: np.ndarray, px: float, py: float,
     if ep_label > 0 and stats[ep_label, cv2.CC_STAT_AREA] >= min_area:
         return (labels == ep_label)
 
-    # 端点不在 mask 内：取最大连通域
+    # 端点不在 mask 内：取"距端点最近 + 高饱和亮色"的连通域。
+    # 5.jpg R_foot 候选3 有 3 个橙色域：
+    #   域5 (距9px,  S=70)  = 脚/鞋本身（低饱和暗色，不是 hold）
+    #   域7 (距45px, S=248) = 脚下岩点（高饱和亮色，正确）✓
+    #   域3 (距127px,S=252) = 左侧绳/衣物（高饱和但更远）
+    # 优先"高饱和 (S>100) 亮色 (V>80)"的连通域，按距离排序选最近者；
+    # 若都低饱和（白色/暗色 hold），退化为按距离选。
+    if image_bgr is not None:
+        hsv_now = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+    else:
+        hsv_now = None
+    best_j, best_d = 0, 1e18
+    fallback_j, fallback_d = 0, 1e18
+    for j in range(1, n_lbl):
+        a = stats[j, cv2.CC_STAT_AREA]
+        if a < min_area:
+            continue
+        cx, cy = cent[j]
+        d = float(np.hypot(cx - ix, cy - iy))
+        # 连通域平均饱和/亮度
+        if hsv_now is not None:
+            ys_c, xs_c = np.where(labels == j)
+            s_med = float(np.median(hsv_now[ys_c, xs_c, 1]))
+            v_med = float(np.median(hsv_now[ys_c, xs_c, 2]))
+        else:
+            s_med, v_med = 0.0, 0.0
+        if s_med > 100 and v_med > 80:
+            if d < best_d:
+                best_d, best_j = d, j
+        if d < fallback_d:
+            fallback_d, fallback_j = d, j
+    if best_j > 0:
+        return (labels == best_j)
+    if fallback_j > 0:
+        return (labels == fallback_j)
+
+    # 兜底：最大连通域
     best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     return (labels == best)
 
