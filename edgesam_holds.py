@@ -42,6 +42,18 @@ DEVICE_CPU = torch.device("cpu")
 # mask 不含端点而全部被过滤。圆圈内 = 人体像素也留着（hold 就在手指/脚附近）。
 PERSON_MASK_PROTECT_RADIUS = 18
 
+# 白色 / 灰白 hold 与彩色 hold 的饱和度分界。
+#   路径 A（绝对白）: mask 内 S<WHITE_SAT_MAX 像素 > 50% AND V>WHITE_BRIGHT_MIN → 判白
+#   路径 B（相对白）: mask S 中位 < WHITE_REL_SAT_MAX 且显著低于环境环（m_s/r_s<0.60）→ 判白
+#   网格采样：patch 内 S<WHITE_SAT_MAX 像素是"灰白"，不参与色相聚合
+#     满足的进入色相聚合（同时要求 V>=COLOR_VAL_MIN，过滤近黑像素）
+#   颜色判定兜底：S<WHITE_SAT_MAX → 判白（不要求 V>WHITE_BRIGHT_MIN —— 阴影/暖光下 V 可 120-140）
+# 四处使用同一个常量。
+WHITE_SAT_MAX = 35
+WHITE_REL_SAT_MAX = 75       # 路径 B 灰白上限
+WHITE_BRIGHT_MIN = 140       # 路径 A / 全 mask 均值兜底用
+COLOR_VAL_MIN = 40           # 网格采样：剔除近黑像素（和 route_color.detect_holds min_val=40 对齐）
+
 
 class EdgeSamHoldSegmenter:
     """EdgeSAM 包装：一次 set_image，多次 predict 端点 mask。"""
@@ -368,13 +380,13 @@ class EdgeSamHoldSegmenter:
         )
         # 颜色名判定优先级（避免 hue bin 把黑/白误判成"红"等）：
         #   1. V<60 AND S<40: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）
-        #   2. S<35: 低饱和（白/灰 hold）→ "白"。不要求 V>140 —— 白色 hold
+        #   2. S<WHITE_SAT_MAX: 低饱和（白/灰 hold）→ "白"。不要求 V>WHITE_BRIGHT_MIN —— 白色 hold
         #      在阴影/暖光下 V 可能只有 120-140（9.jpg R_foot: 相对白判定
         #      返回 (0,0,136)，V=136<140 会落入 hue_to_color_name(0,0) 判"红"）
         #   3. 否则: hue_to_color_name（深蓝 hold：V<60 但 S>=60 也走这里）
         if v < 60 and s < 40:
             color_name = "未知(暗)"
-        elif s < 35:
+        elif s < WHITE_SAT_MAX:
             color_name = "白"
         else:
             color_name = route_color.hue_to_color_name(h, s)
@@ -521,7 +533,7 @@ def _keep_endpoint_cluster(image_bgr: np.ndarray, mask: np.ndarray,
         return mask
 
     # 保护规则：只有"端点簇是白色系且占比小"才剔除异色块。
-    #   - 白色 hold 低饱和（S 中位 < 75）且高亮（V 中位 > 140）
+    #   - 白色 hold 低饱和（S 中位 < WHITE_REL_SAT_MAX）且高亮（V 中位 > WHITE_BRIGHT_MIN）
     #   - 彩色 hold（蓝/橙/紫…）S 高，不该聚类剔除（9 图回归的根因：
     #     k-means 把纯色 mask 拆成明暗簇，端点落在非主簇 → 面积骤减判错）
     #   - 端点簇占 mask 比例 > 25% → mask 颜色本就以端点色为主，无需剔除
@@ -529,7 +541,7 @@ def _keep_endpoint_cluster(image_bgr: np.ndarray, mask: np.ndarray,
     ep_s_med = float(np.median(ep_pix_all[:, 1]))
     ep_v_med = float(np.median(ep_pix_all[:, 2]))
     ep_ratio = ep_n / n
-    is_whiteish = (ep_s_med < 75) and (ep_v_med > 140)
+    is_whiteish = (ep_s_med < WHITE_REL_SAT_MAX) and (ep_v_med > WHITE_BRIGHT_MIN)
     if ep_ratio > 0.25 or not is_whiteish:
         return mask
 
@@ -557,7 +569,7 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
         服像素被剔除 → 颜色统计只反映 hold 像素的真实颜色。
       - 如果 mask 像素太少 (<20) → 返回 (0,0,0)
       - 在 mask 的 bbox 中均匀采 5x5 网格点，每点 5x5 patch：
-          - 不满足 S>=35/V>=40 的"灰白"像素参与"白岩点"判定
+          - 不满足 S>=WHITE_SAT_MAX/V>=COLOR_VAL_MIN 的"灰白"像素参与"白岩点"判定
           - 满足的进入色相聚合
       - 如果"灰白像素"占 mask 大部分 (>50%) 且平均 V 高 → 返回 (0, 0, mean_v)（标志"白"）
       - 否则用色相圆形均值聚合
@@ -583,8 +595,8 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
     mask_pixels_v = mask_pixels[:, 2]
 
     # ------ 白岩点判定 ------
-    # 路径 A：绝对白（mask 内过半像素 S<35 且 V>140）——纯白 hold 直判
-    white_mask = (mask_pixels[:, 1] < 35) & (mask_pixels[:, 2] > 140)
+    # 路径 A：绝对白（mask 内过半像素 S<WHITE_SAT_MAX 且 V>WHITE_BRIGHT_MIN）——纯白 hold 直判
+    white_mask = (mask_pixels[:, 1] < WHITE_SAT_MAX) & (mask_pixels[:, 2] > WHITE_BRIGHT_MIN)
     white_ratio = float(white_mask.sum()) / len(mask_pixels)
     if white_ratio > 0.50:
         mean_v = float(np.mean(mask_pixels_v[white_mask])) if white_mask.sum() else 200.0
@@ -609,7 +621,7 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
             m_s = float(np.median(mask_pixels[:, 1]))
             m_v = float(np.median(mask_pixels[:, 2]))
             if (r_s > 20 and m_s / r_s < 0.60
-                    and m_s < 75 and m_v >= r_v * 0.70):
+                    and m_s < WHITE_REL_SAT_MAX and m_v >= r_v * 0.70):
                 mean_v = float(np.mean(mask_pixels_v))
                 return (0.0, 0.0, mean_v)
 
@@ -643,7 +655,7 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
     for ix, iy in pts:
         # patch 是以 (ix, iy) 中心 5x5 — 直接采样 HSV，不考虑 mask_for_color 在 patch 内
         patch = hsv[iy - 2:iy + 3, ix - 2:ix + 3].reshape(-1, 3)
-        keep = (patch[:, 1] >= 35) & (patch[:, 2] >= 40)
+        keep = (patch[:, 1] >= WHITE_SAT_MAX) & (patch[:, 2] >= COLOR_VAL_MIN)
         if keep.sum() < 3:
             continue
         pix = patch[keep]
@@ -658,7 +670,7 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
         # 没采到任何高饱和像素 — mask 内是浅色，用全部像素均值
         mean_v = float(np.mean(mask_pixels_v))
         mean_s = float(np.mean(mask_pixels[:, 1]))
-        if mean_s < 35 and mean_v > 140:
+        if mean_s < WHITE_SAT_MAX and mean_v > WHITE_BRIGHT_MIN:
             return (0.0, 0.0, mean_v)
         return (0.0, 0.0, mean_v)
     hr2 = np.array(hues) * (2 * np.pi / 180.0)

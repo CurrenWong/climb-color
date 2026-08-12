@@ -141,10 +141,16 @@ img/1.jpg
         只保留"包含端点的连通域"（判断与可视化一致）
         1.jpg R_hand mask 有 10 个连通域：含端点紫色 hold 3485px +
         远处黄色 hold 2136px + 碎片 —— 不过滤则颜色统计被黄紫混合
+        端点缺失时取"距端点最近 + 高饱和亮色 (S>100, V>80)"的连通域
+        （5.jpg R_foot 候选3 最大域 658px 是左侧绳，正确 hold 是距 45px
+        的高饱和域 345px）
       ↓
       颜色聚类 _keep_endpoint_cluster(chosen, px, py):
         mask 含多色时（9.jpg R_hand 紫色岩点 + 白色 hold）做 k-means，
         只保留端点所属颜色簇
+        保护规则：端点簇是白色系（S<WHITE_REL_SAT_MAX=75, V>WHITE_BRIGHT_MIN=140）
+        且占 mask < 25% 才剔除异色块 —— 否则纯色 mask k-means 拆明暗簇
+        会判错
       ↓
       取色区域占比检查:
         (mask & ~person) / mask < 20% → 判"非岩点"
@@ -152,30 +158,28 @@ img/1.jpg
         是身体/手本身，不是 hold，不该投票）
       ↓
       _robust_hsv_from_mask(chosen, exclude_mask=person_mask):
-        mask 内像素 (排除 person) 的 HSV 统计
-      ↓
-      颜色判定顺序：
-        V<60 AND S<40      → '未知(暗)'
-        S<35               → '白'  (不要求 V>140 —— 白色 hold 在阴影/暖光
-                                   下 V 可只有 120-140，9.jpg R_foot 相对白
-                                   返回 (0,0,136) 曾误判"红")
-        else               → route_color.hue_to_color_name(h, s)
-  ↓
-  4 个端点投票 → 多数票 = 线路色 + 置信度
-  ↓
-  draw_results()  ← mask 半透明覆盖 + header + 端点 + 标签
-  ↓
-result_edgesam_*.jpg
-```
-        ├─ 取出 mask & ~exclude_mask 内像素
+        ├─ mask & ~exclude_mask 内像素
+        ├─ 路径 A：过半像素 S<WHITE_SAT_MAX AND V>WHITE_BRIGHT_MIN → 白
+        ├─ 路径 B（暖光/阴影）：mask S 中位 < WHITE_REL_SAT_MAX AND
+        │   显著低于环境环 (m_s/r_s<0.60) → 白
+        │   （9.jpg R_foot S_ratio=0.47, maskS=62 走这条）
         ├─ bbox 5×5 网格采 25 个点，每点 5×5 patch
+        │   S<WHITE_SAT_MAX OR V<COLOR_VAL_MIN 算"灰白"，不参与色相聚合
         ├─ 圆形 hue 均值聚合
         └─ 返回 (h, s, v)
       ↓
-      颜色判定顺序：
-        V<60 AND S<40  → '未知(暗)'
-        S<35 AND V>140  → '白'
-        else            → route_color.hue_to_color_name(h, s)
+      颜色判定顺序（颜色名阈值统一在 edgesam_holds 顶部常量）：
+        V<60 AND S<40            → '未知(暗)'
+        S<WHITE_SAT_MAX (35)     → '白'  (不要求 V>WHITE_BRIGHT_MIN(140)——
+                                    白色 hold 在阴影/暖光下 V 可 120-140，
+                                    9.jpg R_foot 相对白返回 (0,0,136)
+                                    V=136<140 会落入 hue_to_color_name
+                                    判"红"，所以兜底只看 S)
+        else                     → route_color.hue_to_color_name(h, s)
+                                 · HUE_BINS: (118,150)=紫, (150,170)=粉红
+                                 · 4.jpg 深粉红 H=163 走粉红 bin（修前
+                                   HUE_BINS (118,170) 全归紫 + S<120 阈值
+                                   漏掉深粉红 S=130）
   ↓
   4 个端点投票 → 多数票 = 线路色 + 置信度
   ↓
@@ -199,7 +203,7 @@ result_edgesam_*.jpg
 
 ---
 
-## 当前状态（yolo26m 统一 + 全套修复）
+## 当前状态（统一 yolo26m + 全套修复）
 
 ### 9 图线路色结果（真实值 vs 当前输出）
 
@@ -208,14 +212,14 @@ result_edgesam_*.jpg
 | 1 | 紫 | 紫 75% | ✅ |
 | 2 | 黄 | 黄 67% | ✅ |
 | 3 | 绿 | 绿 100% | ✅ |
-| 4 | 紫 | 紫 100% | ✅ |
-| 5 | 橙 | **橙 67%** | ✅ |
+| 4 | 粉红 | 粉红 100% | ✅ |
+| 5 | 橙 | 橙 67% | ✅ |
 | 6 | 黄 | 白 100% | ❌ |
 | 7 | 红 | 红 67% | ✅ |
 | 8 | 蓝 | 紫 100% | ❌ |
 | 9 | 白 | 白 100% | ✅ |
 
-**7/9 正确**；6/8 错误（EdgeSAM 切割问题，非后处理可解）。
+**8/9 正确**；6/8 错误（EdgeSAM 切割问题，非后处理可解）。
 
 ### 已做改动（commit 历史，v2 阶段）
 
@@ -228,7 +232,10 @@ result_edgesam_*.jpg
 | `e8551a7` | **统一 yolo26m**（算法=可视化，废除双模型欺骗）；`_keep_main_component` 主连通域过滤；`S<35` 判白（修 S=0→红 bug）；取色区域<20% 判非岩点 | 1.jpg R_hand 黄→紫 |
 | `0508539` | 端点在 person 内时放宽"必须包含端点"（接受 40px 邻域非空） | 5.jpg R_foot 未知→橙 |
 | `d7d0144` | `_keep_main_component` 端点缺失时取"最近高饱和亮色域"而非最大域 | 5.jpg R_foot 绳→脚下岩点 |
-| (当前) | **subtract 用未膨胀 person_mask**（负点仍用膨胀版）；取色检查/颜色统计同步 | 5.jpg L_foot 非岩点→橙 |
+| `35e73bb` | **subtract 用未膨胀 person_mask**（负点仍用膨胀版）；取色检查/颜色统计同步 | 5.jpg L_foot 非岩点→橙 |
+| `d29ffec` | **HUE_BINS 按色相拆 (118,150)=紫, (150,170)=粉红** + PINK_SAT_MAX 提高到 200 | 4.jpg L_foot 紫→粉红 |
+| `0cb3a6c` | 删 `_robust_hsv_from_mask` 里粉红/紫 S 修正冗余代码（route_color 已按色相处理） | 无回归 |
+| (当前) | **白色 / 灰白 hold 阈值统一为常量**（`WHITE_SAT_MAX=35` / `WHITE_REL_SAT_MAX=75` / `WHITE_BRIGHT_MIN=140` / `COLOR_VAL_MIN=40`），原 4 处硬编码 S<35/S<75/V>140/V>=40 全替换 | 改一处即生效 |
 
 ### 关键修复细节
 
@@ -240,19 +247,25 @@ result_edgesam_*.jpg
 - EdgeSAM mask 可含多个不相连区域（1.jpg R_hand: 含端点紫色 hold 3485px + 远处黄 hold 2136px + 碎片共 10 域）
 - 取"包含端点的连通域"；端点缺失时取"最近高饱和亮色域"（5.jpg R_foot 候选3 的最大域 658px 是左侧绳/衣物，正确 hold 是距 45px 的高饱和域 345px）
 
-**3. `S<35` 判白（修红误判）**
-- 相对白判定返回 (0,0,136)（白色 hold 在阴影/暖光下 V 可 <140）
-- 原 `s<35 and v>140` 不满足 → 落入 hue_to_color_name(0,0) → 判红
-- 改 `s<35` 直接判白 → 9.jpg R_foot 红→白
+**3. 白色 hold 判定（三路径，阈值已统一为常量）**
+- 路径 A：mask 内 S<WHITE_SAT_MAX 且 V>WHITE_BRIGHT_MIN 像素 > 50% → 纯白 hold
+- 路径 B：mask S 中位 < WHITE_REL_SAT_MAX 且显著低于环境环（m_s/r_s<0.60）→ 暖光/阴影下白 hold
+- 路径 C（兜底）：S<WHITE_SAT_MAX 直接判白，不要求 V 高
+- 网格采样：S<WHITE_SAT_MAX OR V<COLOR_VAL_MIN 算"灰白"，不参与色相聚合
+- 9.jpg R_foot 走路径 B（S_ratio=0.47, maskS=62, V=136）
 
 **4. 取色区域 <20% 判非岩点**
 - 9.jpg L/R_hand mask 100% 在 person 内 — 18px 保护圈保住的其实是手/身体，不是 hold，却以 mask 投票
 - 取色区域 (mask & ~person) / mask < 20% → 非岩点
 
-**5. subtract 用未膨胀 person_mask（当前）**
+**5. subtract 用未膨胀 person_mask（`35e73bb`）**
 - 负点仍用膨胀版（让 EdgeSAM 避开身体边缘）
 - subtract 用未膨胀版 — 膨胀6px 会把"手/脚旁的 hold"吞进 person
 - 5.jpg L_foot 脚下橙色岩点被膨胀版吞 → 取色区域=0 判非岩点；用未膨胀版后岩点保留 → 判橙
+
+**6. 粉红/紫按色相拆（`d29ffec`）**
+- 旧 HUE_BINS (118,170) 全归紫，粉红只走 S<120 兜底 —— 4.jpg 深粉红 H=163 S=130 不满足
+- 新 (118,150)=紫, (150,170)=粉红：1.jpg 紫 H=127 不受影响，4.jpg 粉红 H=163 正确归粉红
 
 ### 已知限制（6/8 图，EdgeSAM 切割问题）
 
