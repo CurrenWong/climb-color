@@ -453,6 +453,40 @@ def _keep_main_component(mask: np.ndarray, px: float, py: float,
     ep_label = labels[iy, ix]
 
     if ep_label > 0 and stats[ep_label, cv2.CC_STAT_AREA] >= min_area:
+        # 伪块检测：端点域是 18px 保护圈形成的 person 圆盘（面积 ≈ π*18² ≈ 1018px）
+        # 且 mask 内存在"面积≥3 倍 + 高饱和亮色 + 距端点≤90px"的其他域 → 端点域是
+        # 伪块，改用该域（13.jpg L_hand/L_foot：端点域 810/876px 伪块 + 蓝色 hold
+        # 11713/12203px）。
+        # 不加饱和度条件：L_foot 伪块是攀岩鞋（S=153 高饱和），L_hand 是皮肤（S=76），
+        # 只有 V 上限挡白色高光。距离限制挡 4.jpg R_foot 远处的蓝色杂物域。
+        ep_a = stats[ep_label, cv2.CC_STAT_AREA]
+        protect_disk_area = 3.14159 * PERSON_MASK_PROTECT_RADIUS ** 2  # ≈ 1018
+        if ep_a <= protect_disk_area * 1.5 and image_bgr is not None:
+            ys_ep, xs_ep = np.where(labels == ep_label)
+            hsv_now = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+            ep_v = float(np.median(hsv_now[ys_ep, xs_ep, 2]))
+            # 端点域不能是白色高光（V 很高才是纯白）
+            if ep_v < 235:
+                # 找面积 ≥ ep_a*3 且高饱和亮色的域（优先距离端点近的）
+                best_j, best_d = 0, 1e18
+                for j in range(1, n_lbl):
+                    if j == ep_label:
+                        continue
+                    a = stats[j, cv2.CC_STAT_AREA]
+                    if a < ep_a * 3 or a < min_area:
+                        continue
+                    cx, cy = cent[j]
+                    d = float(np.hypot(cx - ix, cy - iy))
+                    # 新域必须离端点足够近（hold 就在手/脚旁），避免选到远处杂物
+                    if d > PERSON_MASK_PROTECT_RADIUS * 5:  # 90px
+                        continue
+                    ys_c, xs_c = np.where(labels == j)
+                    s_med = float(np.median(hsv_now[ys_c, xs_c, 1]))
+                    v_med = float(np.median(hsv_now[ys_c, xs_c, 2]))
+                    if s_med > 60 and v_med > 100 and d < best_d:
+                        best_d, best_j = d, j
+                if best_j > 0:
+                    return (labels == best_j)
         return (labels == ep_label)
 
     # 端点不在 mask 内：取"距端点最近 + 高饱和亮色"的连通域。
