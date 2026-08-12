@@ -116,8 +116,10 @@ result_edgesam_N.jpg
 - `person_mask_d6` = `dilate_mask(person_mask, 6)`，**仅**供负点采样用
 - 4 个端点 (px, py) = 左手腕 15 / 右手腕 16 / 左脚尖 31 / 右脚尖 32
 
-**EdgeSAM prompt**：
+**EdgeSAM prompt**（prompt 模式，非自动模式）：
 - box = 端点周围 `box_half*2 = 160×160 px` 方框（中心固定 = 端点，**不依赖 detect_holds**）
+  - 自动模式（`SamAutomaticMaskGenerator`）会一次切整张图所有物体 + 后续匹配端点，攀岩图同色 hold/墙聚类混乱；prompt 模式 + box 把搜索范围压到 160×160 内，判别力更强
+  - box 同时给 EdgeSAM **hold 的尺度提示**——纯正点会倾向切最小连通域（1-2px），hold 大就漏
 - positive point = 端点
 - negative points = 6 手工远处 + 12 person 边缘外点（用膨胀版 person_mask_d6）
 - `num_multimask_outputs=4`，4 个候选 mask
