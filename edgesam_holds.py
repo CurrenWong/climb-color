@@ -116,6 +116,7 @@ class EdgeSamHoldSegmenter:
         use_stability_score: bool = True,
         white_route_mode: bool = False,
         person_mask: np.ndarray | None = None,
+        exclude_mask: np.ndarray | None = None,
         mask_subtract_person: bool = False,
     ) -> dict:
         """
@@ -124,12 +125,17 @@ class EdgeSamHoldSegmenter:
         white_route_mode: True 时加强负点密度 + 用更严的面积上限 + 降低 score 门槛。
         用于白岩点这类容易跟墙颜色重叠的场景。
 
-        person_mask: HxW bool，从 YOLO26 得到的攀岩者人体 mask。若提供：
-          - 把 person_mask **边缘外**的点作为 negative prompt（比手工撒点更准）
-            → 让 EdgeSAM 把"端点附近的身体"区分开，更聚焦于"端点所在的物体"
+        person_mask: HxW bool，YOLO26 攀岩者人体 mask。若提供：
+          - 把 person_mask **边缘外**的点作为 negative prompt（让 EdgeSAM 把
+            "端点附近的身体"区分开）
           - mask_subtract_person=True 时再额外把 SAM 输出 mask 与 person_mask 取差集
-            （剥除手腕/衣服等"嵌在身体里的碎片"）。默认 False：端点本身就嵌在
-            person_mask 里，subtract 会让 mask 不含端点被过滤掉。
+            （剥除手腕/衣服等"嵌在身体里的碎片"）
+
+        exclude_mask: HxW bool 可选 — 用于颜色统计时**排除**的像素范围。
+          通常应比 person_mask 大（戴 6-15 px 膨胀），把鞋/手套/护腕等"贴在身体
+          上但露出 person_mask 边界"的附件也算作身体。
+          9.jpg R_foot 攀岩鞋，鞋尖/鞋面常超出 person_mask 边界——不扩大 exclude
+          范围会把鞋的黄色错误地计入颜色统计。
 
         mask_subtract_person (默认 False)：
           - False（推荐）：只给 negative prompt，让 EdgeSAM 自己处理手表等碎片
@@ -242,7 +248,8 @@ class EdgeSamHoldSegmenter:
 
         # 在合格候选里选"包含端点的最小 mask"——hold 一般小，墙+hold 混合的 mask 大
         # 评面积比 score 重：score 差不多时选最小的
-        candidates.sort(key=lambda c: (c[1], -c[0]))
+        # 排序：stability_score ↓ 优先，同分时 area ↓（大mask优先）
+        candidates.sort(key=lambda c: (-c[0], -c[1]))
         chosen_score, _, chosen = candidates[0]
 
         # 用 mask 取 hold 颜色（person_mask 内的身体/衣服像素不进颜色统计）
