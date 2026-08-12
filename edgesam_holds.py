@@ -282,7 +282,14 @@ class EdgeSamHoldSegmenter:
                 continue
             if float(scores[i]) < score_min_main:
                 continue
-            candidates.append((float(scores[i]), area, m_work))
+            # 端点到 mask 的最近距离（mask 内像素到端点的欧氏距离最小值）——
+            # 排序时作为同分 tie-breaker：score 一致时优先选离端点近的 mask
+            ys_m, xs_m = np.where(m_work)
+            if len(xs_m) > 0:
+                dist_to_ep = float(np.min(np.hypot(xs_m - ix, ys_m - iy)))
+            else:
+                dist_to_ep = 1e9
+            candidates.append((float(scores[i]), dist_to_ep, area, m_work))
 
         # 兜底：放低 score 门槛
         if not candidates:
@@ -312,7 +319,12 @@ class EdgeSamHoldSegmenter:
                     continue
                 if float(scores[i]) < soft_score_min:
                     continue
-                soft.append((float(scores[i]), area, m_work))
+                ys_m, xs_m = np.where(m_work)
+                if len(xs_m) > 0:
+                    dist_to_ep = float(np.min(np.hypot(xs_m - ix, ys_m - iy)))
+                else:
+                    dist_to_ep = 1e9
+                soft.append((float(scores[i]), dist_to_ep, area, m_work))
             if soft:
                 candidates = soft
 
@@ -329,10 +341,12 @@ class EdgeSamHoldSegmenter:
             }
 
         # 在合格候选里选"包含端点的最小 mask"——hold 一般小，墙+hold 混合的 mask 大
-        # 评面积比 score 重：score 差不多时选最小的
-        # 排序：stability_score ↓ 优先，同分时 area ↓（大mask优先）
-        candidates.sort(key=lambda c: (-c[0], -c[1]))
-        chosen_score, _, chosen = candidates[0]
+        # 排序：(-score, -dist_to_endpoint, -area)
+        #   - score 最高优先（EdgeSAM 自己最稳的分割）
+        #   - 同分时距端点最近优先（避免 score 同分时选离端点远的"碰巧大 mask"）
+        #   - 再同分时 area 大优先（hold 比杂质像素多）
+        candidates.sort(key=lambda c: (-c[0], c[1], -c[2]))
+        chosen_score, _, _, chosen = candidates[0]
 
         # 主连通域过滤（判断与可视化一致）：EdgeSAM 的 mask 可含多个不相连
         # 区域（1.jpg R_hand: 含端点的紫色 hold 3485px + 远处黄色 hold 2136px

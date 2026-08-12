@@ -89,7 +89,8 @@ img/N.jpg
     ┌─────────────────────────────────────────────────────────┐
     │ segment_endpoint(px, py, person_mask, …)                │
     │   input: box (端点±80px) + 1 正点 + 18 负点             │
-    │   EdgeSAM → 4 mask 候选 → 必须含端点 + 按 (-score,-area) │
+    │   EdgeSAM → 4 mask 候选 → 必须含端点 + 按 (-score,        │
+    │     +dist, -area) 排序取最佳（score 同分时距端点近优先） │
     │   mask -= person_mask (18px 保护圈内保留)                │
     │   _keep_main_component  (只留含端点的连通域)             │
     │   _keep_endpoint_cluster  (k-means, 9.jpg 紫+白 hold)    │
@@ -128,7 +129,10 @@ result_edgesam_N.jpg
 - 面积 `100 < area < img_area * 0.3`（上限 30% 图，剔除大块）
 - `score >= 0.4`
 - **必须包含端点**（距离考量隐式：不含端点的候选直接剔除；端点本身在 person 内时放宽为"端点 40px 邻域非空"——5.jpg R_foot）
-- 按 `(-score, -area)` 排序，选 best
+- 排序：`(-score, +dist_to_endpoint, -area)` 选 best
+  - score 最高优先（EdgeSAM 最稳的分割）
+  - 同分时距端点最近优先（避免选离端点远的"碰巧大 mask"）—— dist 是 mask 内像素到端点的欧氏距离最小值
+  - 再同分时 area 大优先（hold 比杂质像素多）
 - 兜底：端点不在任何候选里 → 主连通域过滤取"距端点最近 + 高饱和亮色域 (S>100, V>80)"（5.jpg R_foot 远绳候选剔除）
 
 **mask 后处理**（关键，**判断与可视化共用**）：
@@ -201,6 +205,7 @@ result_edgesam_N.jpg
 | `d29ffec` | **HUE_BINS 按色相拆 (118,150)=紫, (150,170)=粉红** + PINK_SAT_MAX 提高到 200 | 4.jpg L_foot 紫→粉红 |
 | `0cb3a6c` | 删 `_robust_hsv_from_mask` 里粉红/紫 S 修正冗余代码（route_color 已按色相处理） | 无回归 |
 | (当前) | **白色 / 灰白 hold 阈值统一为常量**（`WHITE_SAT_MAX=35` / `WHITE_REL_SAT_MAX=75` / `WHITE_BRIGHT_MIN=140` / `COLOR_VAL_MIN=40`），原 4 处硬编码 S<35/S<75/V>140/V>=40 全替换 | 改一处即生效 |
+| (当前) | **排序 key 改成 `(-score, +dist_to_endpoint, -area)`** —— score 同分时优先选距端点近的 mask，避免选离端点远的"碰巧大 mask" | 8/9 无回归（潜在更稳） |
 
 ### 关键修复细节
 
