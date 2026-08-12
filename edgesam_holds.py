@@ -245,8 +245,11 @@ class EdgeSamHoldSegmenter:
         candidates.sort(key=lambda c: (c[1], -c[0]))
         chosen_score, _, chosen = candidates[0]
 
-        # 用 mask 取 hold 颜色
-        h, s, v = _robust_hsv_from_mask(self.last_image_bgr, chosen)
+        # 用 mask 取 hold 颜色（person_mask 内的身体/衣服像素不进颜色统计）
+        h, s, v = _robust_hsv_from_mask(
+            self.last_image_bgr, chosen,
+            exclude_mask=person_mask,
+        )
         # 颜色名判定优先级（避免 hue bin 把黑/白误判成"红"等）：
         #   1. V<60 AND S<40: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）
         #   2. S<35 AND V>140: 白色 hold
@@ -272,13 +275,19 @@ class EdgeSamHoldSegmenter:
 # ============================================================
 # mask → HSV 颜色统计（在 hold mask 内采多点 patch 圆形均值，借鉴 route_color）
 # ============================================================
-def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray) -> tuple[float, float, float]:
+def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
+                          exclude_mask: np.ndarray | None = None) -> tuple[float, float, float]:
     """
     image_bgr: HxWx3 uint8
-    mask: HxW bool（hold 区域）
+    mask: HxW bool（hold 区域，EdgeSAM 切出的"端点附近"区域）
+    exclude_mask: HxW bool 可选 — exclude_mask 内像素不进颜色统计
+
     返回 (h, s, v)：hold 的代表色
 
     策略：
+      - 在 mask 内只统计"不在 exclude_mask 内"的像素：
+        当 provide exclude_mask=person_mask，hand+hold mask 内的人体皮肤/衣
+        服像素被剔除 → 颜色统计只反映 hold 像素的真实颜色。
       - 如果 mask 像素太少 (<20) → 返回 (0,0,0)
       - 在 mask 的 bbox 中均匀采 5x5 网格点，每点 5x5 patch：
           - 不满足 S>=35/V>=40 的"灰白"像素参与"白岩点"判定
@@ -286,9 +295,20 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray) -> tuple[floa
       - 如果"灰白像素"占 mask 大部分 (>50%) 且平均 V 高 → 返回 (0, 0, mean_v)（标志"白"）
       - 否则用色相圆形均值聚合
     """
-    ys, xs = np.where(mask)
+    # 用 mask & ~exclude_mask 限定参与颜色统计的像素（剔出 person_mask 内的身体）
+    if exclude_mask is not None:
+        mask_for_color = mask & ~exclude_mask.astype(bool)
+    else:
+        mask_for_color = mask
+
+    ys, xs = np.where(mask_for_color)
     if len(xs) < 20:
-        return (0.0, 0.0, 0.0)
+        # 退回到原始 mask（剔除后没足够像素）
+        ys, xs = np.where(mask)
+        if len(xs) < 20:
+            return (0.0, 0.0, 0.0)
+        mask_for_color = mask
+
     h_img, w_img = mask.shape
 
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
@@ -318,14 +338,20 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray) -> tuple[floa
             ix = int(round(cx_g))
             iy = int(round(cy_g))
             if 2 <= ix < w_img - 2 and 2 <= iy < h_img - 2:
-                patch_mask = mask[max(0, iy - 2):iy + 3, max(0, ix - 2):ix + 3]
-                if patch_mask.mean() > 0.4:
+                # patch 中心 5x5 检查：用 mask_for_color (排除身体) + mask
+                # patch 中"hold 占比 >40%" → 这点可能采到 hold 颜色
+                patch_hold = mask_for_color[max(0, iy - 2):iy + 3, max(0, ix - 2):ix + 3]
+                patch_total = mask[max(0, iy - 2):iy + 3, max(0, ix - 2):ix + 3]
+                if patch_total.size == 0:
+                    continue
+                if patch_hold.sum() / patch_total.size > 0.20:
                     pts.append((ix, iy))
     if not pts:
         return (0.0, 0.0, 0.0)
 
     hues, sats, vals = [], [], []
     for ix, iy in pts:
+        # patch 是以 (ix, iy) 中心 5x5 — 直接采样 HSV，不考虑 mask_for_color 在 patch 内
         patch = hsv[iy - 2:iy + 3, ix - 2:ix + 3].reshape(-1, 3)
         keep = (patch[:, 1] >= 35) & (patch[:, 2] >= 40)
         if keep.sum() < 3:
