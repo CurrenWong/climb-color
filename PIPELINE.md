@@ -178,7 +178,21 @@ result_edgesam_*.jpg
 | `dba9f22` | 颜色统计排除 person_mask 内像素 | hand 皮肤不拉偏 hue |
 | `b7729b1` | `candidates.sort(key=lambda c: (-c[0], -c[1]))` — stability_score ↓, area ↓ tie-break | 完整 mask 优先 |
 | `ec30e80` | **box prompt 启用**：box=端点周围 160px, `num_multimask_outputs=3→4`, 不依赖 detect_holds | 9.jpg R_foot mask 1688→13527 (完整 hold shape) |
-| (未 commit) | `mask_subtract_person=True` 默认 + 端点 18px 保护圈 | **mask 与人体不重合** |
+| (前 commit) | `mask_subtract_person=True` 默认 + 端点 18px 保护圈 | **mask 与人体不重合** |
+| `2a127c4` | **相对白判定** + **颜色聚类剔除** | 见下 |
+
+### `2a127c4` 双修复
+
+**1. 相对白判定（`_robust_hsv_from_mask` 路径 B）**
+- 问题：暖光下白色 hold 的 S=35-75（不是绝对 <35），且 hold 只占 mask 一部分 → 绝对白判定 `S<35 占比>50%` 失效，9.jpg R_foot 被判"黄"
+- 修复：对比 mask 与 mask 外扩 20px 环境环的中位 S/V — `S_ratio<0.60 AND maskS<75 AND V_ratio>=0.70` → 白
+- 效果：9.jpg R_foot 黄→白；8.jpg 蓝 hold (S_ratio=0.50 但 maskS=114) 被绝对 S 挡掉不误判
+
+**2. 颜色聚类剔除（`_keep_endpoint_cluster`）**
+- 问题：9.jpg R_hand 的 EdgeSAM mask 同时包含上方紫色岩点 (73.6%) + 被抓的白色 hold (14.3%) → 颜色统计混成"粉红"
+- 修复：mask 内手写 k-means (k=3, 无 sklearn 依赖)，只保留**端点像素所属的颜色簇**，剔除异色大块
+- 保护规则（防回归）：仅当端点簇"白色系"（S_med<75, V_med>140）且占比 <25% 时剔除；纯色 hold（蓝/橙/绿）原样保留
+- 效果：9.jpg R_hand 粉红→白；9.jpg 线路色 黄33%→**白67%**；图 1-8 零回归
 
 ### mask_subtract_person 效果（9.jpg）
 
@@ -188,18 +202,19 @@ result_edgesam_*.jpg
 | R_hand | 15206 | 7476 |
 | R_foot | 13527 | 7228 |
 
-### 当前观察
+### 当前观察（9.jpg，commit `2a127c4` 后）
 
-- **9.jpg R_foot 颜色仍 "黄" (H=22.8)**，用户期望 "白"（hold 是白色）
-- mask 扣掉人体后变小，但颜色统计仍取到 box 内剩余像素的黄色（可能是盒内 hold 周围木板）
-- 仍需要: 视觉确认 mask 是否正确贴合白色 hold（当前无视觉验证能力）
+- ✅ **R_foot 白**（相对白判定）— mask 正确贴合白色 hold
+- ✅ **R_hand 白**（颜色聚类剔除紫色岩点）— mask 不再含上方紫色岩点
+- ✅ **线路色 = 白 67%**（L_hand=黄 是残余误判，hold 也是白色但 mask 含杂质）
+- ⚠️ L_hand 仍判"黄"（area=2951，S=53.5 V=99.5 — 相对白判定 V_ratio 不足未触发）
 
 ### 剩余修复方向
 
 | 修复 | 改动量 | 风险 |
 |---|---|---|
+| L_hand 同款处理（诊断 mask 内白色占比为何不足） | 中等 | 低 |
 | 缩 `box_half` (80→50) 减小 box 贪心 | 一行 | 可能切不到完整 hold |
-| box 内分区域主色投票（不是整片平均） | 中等 | 稳定 |
 | `mask_input` 迭代扩展（EdgeSAM 官方推荐） | 中等 | 慢 1.5-2x |
 | 换 EdgeSAM-3x 模型（语义更强） | 中等 | 慢一点，无逻辑风险 |
 
