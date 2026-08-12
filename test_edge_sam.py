@@ -67,47 +67,58 @@ def detect_pose(image_rgb: np.ndarray, landmarker, w: int, h: int,
 def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
                  confidence: float, votes: dict, n_segmented: int):
     h_img, w_img = image_bgr.shape[:2]
-    overlay = image_bgr.copy()
 
-    # 头部 header
+    # ---------- Header（中等暗度，不再压成 25% 透明） ----------
     header_h = 80
-    cv2.rectangle(overlay, (0, 0), (w_img, header_h), (30, 30, 30), -1)
-    cv2.addWeighted(overlay, 0.75, image_bgr, 0.25, 0, image_bgr)
+    overlay = image_bgr.copy()
+    cv2.rectangle(overlay, (0, 0), (w_img, header_h), (60, 60, 60), -1)
+    cv2.addWeighted(overlay, 0.55, image_bgr, 0.45, 0, image_bgr)
     cv2.putText(image_bgr, f"EdgeSAM route  segmented={n_segmented}",
-                (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1)
+                (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
     cv2.putText(image_bgr, f"Color: {route_color}    Confidence: {confidence:.0%}",
-                (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
     vote_str = "  ".join(f"{c}={n}" for c, n in sorted(votes.items(), key=lambda x: -x[1]))
     cv2.putText(image_bgr, vote_str, (10, 72),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 200, 255), 1, cv2.LINE_AA)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 230, 255), 1, cv2.LINE_AA)
 
     LABEL_DX = {'L_hand': -1, 'R_hand': +1, 'L_foot': -1, 'R_foot': +1}
     for s in samples:
         px, py = int(s['px'][0]), int(s['px'][1])
 
-        # mask 半透明覆盖
+        # ---------- Mask：只在 mask 区域内 blend（之前 addWeighted 全图变暗是 bug） ----------
         if s.get('mask_uint8') is not None:
             mask_bool = s['mask_bool']
-            color = np.array(edgesam_holds._hsv_to_bgr_(s['h'], s['s'], s['v']), dtype=np.uint8)
-            color_img = np.zeros_like(image_bgr)
-            color_img[mask_bool] = color
-            cv2.addWeighted(color_img, 0.35, image_bgr, 0.65, 0, image_bgr)
+            color = np.array(_hsv_to_bgr_(s['h'], s['s'], s['v']), dtype=np.uint8)
+            # mask 颜色加饱和/亮（避免色相分布后颜色发暗发灰）
+            vivid_color = _vivid_color(s['h'], s['s'], s['v'])
 
-            # mask 边界线
+            alpha = 0.50
+            idx = mask_bool
+            blend = (image_bgr[idx].astype(np.float32) * (1 - alpha)
+                     + vivid_color.astype(np.float32) * alpha)
+            image_bgr[idx] = np.clip(blend, 0, 255).astype(np.uint8)
+
+            # mask 边界线（亮色 2px，外部黑 1px 增强对比）
             mask_u8 = (mask_bool.astype(np.uint8)) * 255
             contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(image_bgr, contours, -1, tuple(int(c) for c in color), 2)
+            cv2.drawContours(image_bgr, contours, -1, (0, 0, 0), 4)              # 黑色 1px 外环
+            cv2.drawContours(image_bgr, contours, -1, vivid_color.tolist(), 2)   # 亮色 2px
 
-        # 端点：红色实心点 + 白圈
+        # ---------- 端点：红色实心点 + 白圈（不变） ----------
         cv2.circle(image_bgr, (px, py), 5, (255, 255, 255), -1)
         cv2.circle(image_bgr, (px, py), 3, (0, 0, 255), -1)
 
-        # 标签
+        # ---------- 标签（字号放大、加描边、可读性更好） ----------
         dx = LABEL_DX.get(s['point'], +1)
-        label = f"{s['point']}->{s['name']} (area={s['area']})"
-        if s.get('score') is not None:
+        if s.get('score') is not None and s.get('name') not in ('低置信度', '非岩点'):
             label = f"{s['point']}->{s['name']} s={s['score']:.2f} a={s['area']}"
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+        elif s['name'] not in ('低置信度', '非岩点'):
+            label = f"{s['point']}->{s['name']}"
+        else:
+            label = f"{s['point']}({s['name']})"
+        font_scale = 0.5
+        thickness = 1
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
         if dx > 0:
             bx, by = px + 40, py - 14
         else:
@@ -115,9 +126,21 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
         bx = max(2, min(bx, w_img - tw - 4))
         by = max(th + 4, min(by, h_img - 4))
         cv2.line(image_bgr, (px, py), (bx + tw // 2, by - th // 2), (255, 255, 255), 1, cv2.LINE_AA)
-        cv2.rectangle(image_bgr, (bx - 2, by - th - 2), (bx + tw + 2, by + 2), (0, 0, 0), -1)
-        cv2.putText(image_bgr, label, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.rectangle(image_bgr, (bx - 3, by - th - 3), (bx + tw + 3, by + 3), (0, 0, 0), -1)
+        # 描边（黑色 2px）+ 文字（白色 1px）
+        cv2.putText(image_bgr, label, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                    (0, 0, 0), thickness + 2, cv2.LINE_AA)
+        cv2.putText(image_bgr, label, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                    (255, 255, 255), thickness, cv2.LINE_AA)
+
+
+def _vivid_color(h: float, s: float, v: float) -> np.ndarray:
+    """把 hold 的 HSV 色彩拉到最大饱和/亮（避免 mask 平均后发灰变暗）。"""
+    s_new = float(np.clip(max(s, 100), 100, 255))
+    v_new = float(np.clip(max(v, 150), 150, 255))
+    color = np.array([[[int(h), int(s_new), int(v_new)]]], dtype=np.uint8)
+    bgr = cv2.cvtColor(color, cv2.COLOR_HSV2BGR)[0, 0]
+    return bgr.astype(np.uint8)
 
 
 # expose route_color 的 hsv→bgr 工具

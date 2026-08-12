@@ -70,27 +70,37 @@ class EdgeSamHoldSegmenter:
     def _make_negative_prompts(
         px: float, py: float,
         body_cx: float | None, body_cy: float | None,
-        n: int = 4, radius: float = 35.0,
+        n: int = 6, radius: float = 35.0,
+        white_route: bool = False,
     ) -> np.ndarray:
         """
-        在端点周围 + 远离身体方向 / 紧贴身体等位置制造 negative points，
-        把"端点附近的身体"从 hold mask 中剔除。
+        在端点周围制造 negative points，把"端点附近的身体 + 背景墙"从 hold mask 剔除。
+
+        white_route=True 时加强"亮高光"方向上的负点 — 防止 EdgeSAM
+        把镁粉/天花板反光误当作 hold mask。
+
         返回 shape (n, 2) 的 array，labels 由调用方填 0。
-        没身体信息时（极少见）：围一个半径 radius 的圆上 n 个点。
         """
-        pts = []
+        pts: list[tuple[float, float]] = []
         if body_cx is not None and body_cy is not None:
-            # 从端点向身体方向的反方向 30px 拿 1 点（身体侧）：
             ux, uy = body_cx - px, body_cy - py
             norm = np.hypot(ux, uy) or 1.0
             ux, uy = ux / norm, uy / norm
+            # 身体侧一点（端点往身体方向偏 30px）
             inward_x = px + 30 * ux
             inward_y = py + 30 * uy
-            # 再四周加点（垂直端点方向上的"墙"）：
-            for theta in (np.pi / 2, -np.pi / 2):
-                rx = px + radius * (ux * np.cos(theta) - uy * np.sin(theta))
-                ry = py + radius * (ux * np.sin(theta) + uy * np.cos(theta))
-                pts.extend([(inward_x, inward_y), (rx, ry)])
+            pts.append((inward_x, inward_y))
+            # 4 个垂直端点方向的"墙/背景"
+            for theta in np.linspace(0, 2 * np.pi, 5, endpoint=False):
+                rx = px + radius * (np.cos(theta))
+                ry = py + radius * (np.sin(theta))
+                pts.append((rx, ry))
+            if white_route:
+                # 加大远端斜上 60-90px 的负点（白岩点常见 = 镁粉在端点正上方/侧上）
+                for theta_off in (np.pi / 4, 3 * np.pi / 4, -3 * np.pi / 4, -np.pi / 4):
+                    ux_off = ux * np.cos(theta_off) - uy * np.sin(theta_off)
+                    uy_off = ux * np.sin(theta_off) + uy * np.cos(theta_off)
+                    pts.append((px + 60 * ux_off, py + 60 * uy_off))
         else:
             for theta in np.linspace(0, 2 * np.pi, n, endpoint=False):
                 pts.append((px + radius * np.cos(theta),
@@ -103,9 +113,13 @@ class EdgeSamHoldSegmenter:
         body_cx: float | None = None, body_cy: float | None = None,
         num_multimask_outputs: int = 3,
         use_stability_score: bool = True,
+        white_route_mode: bool = False,
     ) -> dict:
         """
         对 (px, py) 这个端点做 hold 分割。
+
+        white_route_mode: True 时加强负点密度 + 用更严的面积上限 + 降低 score 门槛。
+        用于白岩点这类容易跟墙颜色重叠的场景。
 
         返回 dict:
           mask: HxW bool（端点所在 hold 的 mask，原图坐标系）
@@ -117,8 +131,11 @@ class EdgeSamHoldSegmenter:
         if not self.predictor.is_image_set:
             raise RuntimeError("先调用 set_image() 再 segment_endpoint()")
 
-        # 正点：1 个端点；负点：4 个（同方法）
-        neg = self._make_negative_prompts(px, py, body_cx, body_cy, n=4)
+        # 正点 + 负点（白路线模式更激进）
+        neg = self._make_negative_prompts(
+            px, py, body_cx, body_cy,
+            white_route=white_route_mode,
+        )
         point_coords = np.vstack([
             [[px, py]],
             neg,
@@ -141,31 +158,36 @@ class EdgeSamHoldSegmenter:
         iy = max(0, min(iy, self.last_h - 1))
         img_area = self.last_w * self.last_h
 
-        # 过滤：必须包含端点、score ≥ 0.4、面积 < 30% 图（避免"整墙" mask）
+        # 面积上限：白路线模式更激进（白 hold 一般更小）
+        area_cap = img_area * (0.20 if white_route_mode else 0.30)
+
+        # 过滤：必须包含端点、score ≥ 阈值、面积 < 阈值
+        score_min_main = 0.35 if white_route_mode else 0.4
         candidates = []
         for i, m in enumerate(masks):
             area = int(m.sum())
-            if area < 100:                       # 太碎
+            if area < 100:
                 continue
-            if area > img_area * 0.30:           # 太大 — 多半是"墙+hold"一起切了
+            if area > area_cap:
                 continue
             if not m[iy, ix]:
                 continue
-            if float(scores[i]) < 0.4:
+            if float(scores[i]) < score_min_main:
                 continue
             candidates.append((float(scores[i]), area, m))
 
-        # 当所有候选都被"包含端点"过滤掉，兜底：
+        # 兜底：放低 score 门槛
         if not candidates:
-            # 在"包含端点 + score ≥ 0.3"的候选里选（放低 score 门槛）
+            soft_score_min = 0.25 if white_route_mode else 0.3
+            soft_area_cap = img_area * 0.45
             soft = []
             for i, m in enumerate(masks):
                 area = int(m.sum())
-                if area < 50 or area > img_area * 0.45:
+                if area < 50 or area > soft_area_cap:
                     continue
                 if not m[iy, ix]:
                     continue
-                if float(scores[i]) < 0.3:
+                if float(scores[i]) < soft_score_min:
                     continue
                 soft.append((float(scores[i]), area, m))
             if soft:
