@@ -59,3 +59,6 @@ ENV/
 .env
 .env.local
 *.log
+
+# Session-local task notes (Coding Mode)
+*_TODO.md
