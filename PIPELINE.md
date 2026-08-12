@@ -79,114 +79,76 @@ result_route_*.jpg
 ## v2 pipeline（`test_edge_sam.py`，新增）
 
 ```
-img/1.jpg
-  ↓
-[一次性] load EdgeSAM (edge_sam.pth, CPU) + YOLO26 (yolo26m-seg.pt) + MediaPipe Pose
-  ↓
-[每张图]
-  image_bgr ← cv2.imread(...)
-  ↓
-  [A] YOLO26m.person_masker.segment(image_bgr)   ← 算法与可视化用同一个 mask
-      yolo26m-seg 在 COCO class=0 (person)
-      → 合并所有 person 检测 → HxW bool (person_mask)
-      ↓
-      person_mask_d6 = dilate_mask(person_mask, 6)   ← 负点采样用
-      算法 subtract 用未膨胀 person_mask（避免吞掉手/脚旁的 hold）
-  ↓
-  [B] detect_pose(image_bgr)             ← MediaPipe Pose 原图检测
-      detect_pose(flip)                   ← 翻转图检测
-      merge_flip_landmarks()               ← 谁可见度高取谁 + 左右标签对调
-      → 4 个端点 (15, 16, 31, 32) landmark 坐标
-  ↓
-  EdgeSAM encoder (image_bgr)             ← 一次性 image embedding
-  ↓
-  对每个端点 (4 次, 顺序 loop)：
-    segment_endpoint(px, py,
-                     person_mask=person_d6,          # 负点用 (膨胀版)
-                     subtract_person_mask=person_mask, # subtract 用 (未膨胀版)
-                     use_box_prompt=True,       # box prompt 启用
-                     mask_subtract_person=True)  # mask 剥离人体
-      │
-      ├─ box prompt: 端点周围 box_half*2 px 方框 (默认 80 → 160x160)
-      │              box 中心固定 = 端点，完全不依赖 detect_holds
-      ├─ positive point: 端点 (px, py)
-      ├─ negative points: 6 手工远处 + 12 person 边缘外 (用膨胀版)
-      └─ EdgeSAM.predict(
-            box=box,
-            point_coords=[1+端点, 18 neg],
-            point_labels=[1, 0, 0, …],
-            num_multimask_outputs=4,
-            use_stability_score=True,
-          )
-         → 4 个 mask 候选
-      ↓
-      mask_subtract_person=True（用 subtract_person_mask = 未膨胀版）：
-        mask -= person_mask（把人体/鞋/腿/手像素剥掉）
-        但保留端点周围 18px 保护圈（否则端点本身在 person 内会被扣光）
-        关键：subtract 用未膨胀 mask —— 膨胀6px 会把"手/脚旁的 hold"也
-        吞进 person（5.jpg L_foot 脚下橙色岩点被吞 → 取色区域=0 判非岩点；
-        用未膨胀版后岩点保留，判橙）
-      ↓
-      筛选候选：
-        area: 100 < area < img_area * 0.3
-        score >= 0.4
-        包含端点 (px, py) —— 但若端点本身在 person 内（脚在 person 内、
-        hold 在脚下 person 外），放宽为"端点 40px 邻域非空"(5.jpg R_foot)
-      ↓
-      排序：stability_score 降序优先，同分 area 降序
-        candidates.sort(key=lambda c: (-c[0], -c[1]))
-      → 选中 chosen_mask
-      ↓
-      主连通域过滤 _keep_main_component(chosen, px, py):
-        只保留"包含端点的连通域"（判断与可视化一致）
-        1.jpg R_hand mask 有 10 个连通域：含端点紫色 hold 3485px +
-        远处黄色 hold 2136px + 碎片 —— 不过滤则颜色统计被黄紫混合
-        端点缺失时取"距端点最近 + 高饱和亮色 (S>100, V>80)"的连通域
-        （5.jpg R_foot 候选3 最大域 658px 是左侧绳，正确 hold 是距 45px
-        的高饱和域 345px）
-      ↓
-      颜色聚类 _keep_endpoint_cluster(chosen, px, py):
-        mask 含多色时（9.jpg R_hand 紫色岩点 + 白色 hold）做 k-means，
-        只保留端点所属颜色簇
-        保护规则：端点簇是白色系（S<WHITE_REL_SAT_MAX=75, V>WHITE_BRIGHT_MIN=140）
-        且占 mask < 25% 才剔除异色块 —— 否则纯色 mask k-means 拆明暗簇
-        会判错
-      ↓
-      取色区域占比检查:
-        (mask & ~person) / mask < 20% → 判"非岩点"
-        （9.jpg L/R_hand mask 100% 在 person 内——18px 保护圈保住的
-        是身体/手本身，不是 hold，不该投票）
-      ↓
-      _robust_hsv_from_mask(chosen, exclude_mask=person_mask):
-        ├─ mask & ~exclude_mask 内像素
-        ├─ 路径 A：过半像素 S<WHITE_SAT_MAX AND V>WHITE_BRIGHT_MIN → 白
-        ├─ 路径 B（暖光/阴影）：mask S 中位 < WHITE_REL_SAT_MAX AND
-        │   显著低于环境环 (m_s/r_s<0.60) → 白
-        │   （9.jpg R_foot S_ratio=0.47, maskS=62 走这条）
-        ├─ bbox 5×5 网格采 25 个点，每点 5×5 patch
-        │   S<WHITE_SAT_MAX OR V<COLOR_VAL_MIN 算"灰白"，不参与色相聚合
-        ├─ 圆形 hue 均值聚合
-        └─ 返回 (h, s, v)
-      ↓
-      颜色判定顺序（颜色名阈值统一在 edgesam_holds 顶部常量）：
-        V<60 AND S<40            → '未知(暗)'
-        S<WHITE_SAT_MAX (35)     → '白'  (不要求 V>WHITE_BRIGHT_MIN(140)——
-                                    白色 hold 在阴影/暖光下 V 可 120-140，
-                                    9.jpg R_foot 相对白返回 (0,0,136)
-                                    V=136<140 会落入 hue_to_color_name
-                                    判"红"，所以兜底只看 S)
-        else                     → route_color.hue_to_color_name(h, s)
-                                 · HUE_BINS: (118,150)=紫, (150,170)=粉红
-                                 · 4.jpg 深粉红 H=163 走粉红 bin（修前
-                                   HUE_BINS (118,170) 全归紫 + S<120 阈值
-                                   漏掉深粉红 S=130）
-  ↓
-  4 个端点投票 → 多数票 = 线路色 + 置信度
-  ↓
-  draw_results()  ← mask 半透明覆盖 + header + 端点 + 标签
-  ↓
-result_edgesam_*.jpg
+img/N.jpg
+  │
+  ├─ [1] YOLO26m → person_mask（算法=可视化用同一个）
+  ├─ [2] MediaPipe Pose (原图+翻转) → 4 个端点 (15,16,31,32)
+  └─ [3] EdgeSAM encoder (一次性 image embedding)
+        ↓
+  对每个端点 (4 次)：
+    ┌─────────────────────────────────────────────────────────┐
+    │ segment_endpoint(px, py, person_mask, …)                │
+    │   input: box (端点±80px) + 1 正点 + 18 负点             │
+    │   EdgeSAM → 4 mask 候选 → 选 score×area 最佳            │
+    │   mask -= person_mask (18px 保护圈内保留)                │
+    │   _keep_main_component  (只留含端点的连通域)             │
+    │   _keep_endpoint_cluster  (k-means, 9.jpg 紫+白 hold)    │
+    │   取色区域 <20% → "非岩点" (手/身体片段)                 │
+    │   _robust_hsv_from_mask                                  │
+    │     路径 A: 过半像素 S<35 AND V>140  → 白                │
+    │     路径 B: mask S 中位 < 75 AND 远低于环境环 → 白       │
+    │     网格 5×5 patch 圆形 hue 均值 → (h, s, v)            │
+    │   颜色名：暗/白/else → hue_to_color_name                  │
+    │     HUE_BINS: (118,150)=紫, (150,170)=粉红               │
+    └─────────────────────────────────────────────────────────┘
+        ↓
+  4 端点投票 → 多数票 = 线路色 + 置信度
+        ↓
+  draw_results (mask 半透明覆盖 + header + 端点 + 标签)
+        ↓
+result_edgesam_N.jpg
 ```
+
+### v2 端点处理内循环细节
+
+**输入准备**（一次性）：
+- `person_mask` = YOLO26m 攀岩者人体 mask（算法=可视化用同一个）
+- `person_mask_d6` = `dilate_mask(person_mask, 6)`，**仅**供负点采样用
+- 4 个端点 (px, py) = 左手腕 15 / 右手腕 16 / 左脚尖 31 / 右脚尖 32
+
+**EdgeSAM prompt**：
+- box = 端点周围 `box_half*2 = 160×160 px` 方框（中心固定 = 端点，**不依赖 detect_holds**）
+- positive point = 端点
+- negative points = 6 手工远处 + 12 person 边缘外点（用膨胀版 person_mask_d6）
+- `num_multimask_outputs=4`，4 个候选 mask
+
+**候选筛选**：
+- 面积 `100 < area < img_area * 0.3`（上限 30% 图，剔除大块）
+- `score >= 0.4`
+- 必须包含端点 — 端点本身在 person 内时放宽为"端点 40px 邻域非空"（5.jpg R_foot）
+- 按 `(-score, -area)` 排序，选 best
+
+**mask 后处理**（关键，**判断与可视化共用**）：
+- `mask -= person_mask`（用**未膨胀**版，避免吞脚旁 hold —— 5.jpg L_foot 脚下橙点）
+- 端点周围 18px 保护圈（hold 在手指/脚附近，扣掉会全空）
+- `_keep_main_component`：含端点的连通域；缺失时取"最近高饱和亮色域 (S>100, V>80)"
+- `_keep_endpoint_cluster`：多色 mask（9.jpg R_hand 紫+白）做 k-means
+- 取色区域 `(mask & ~person) / mask < 20%` → "非岩点"（9.jpg 手 100% 在 person 内）
+
+**颜色统计**（`_robust_hsv_from_mask`）：
+- 路径 A 绝对白：mask 内 S<WHITE_SAT_MAX(35) AND V>WHITE_BRIGHT_MIN(140) 像素 > 50%
+- 路径 B 相对白：mask S 中位 < WHITE_REL_SAT_MAX(75) AND `m_s/r_s < 0.60`（9.jpg R_foot S=62）
+- bbox 内 5×5 网格采 25 个点 × 5×5 patch；S<WHITE_SAT_MAX OR V<COLOR_VAL_MIN(40) 算"灰白"跳过
+- 圆形 hue 均值聚合 → (h, s, v)
+
+**颜色名判定**（颜色名阈值统一为 `edgesam_holds` 顶部常量）：
+| 条件 | 颜色名 |
+|---|---|
+| V<60 AND S<40 | 未知(暗)（衣服/手套/手表） |
+| S<WHITE_SAT_MAX(35) | 白（不要求 V>140 —— 阴影/暖光下 V 可 120-140） |
+| else | `route_color.hue_to_color_name(h, s)` |
+
+`HUE_BINS`：`(118,150)=紫`, `(150,170)=粉红`（按色相拆分；4.jpg 深粉红 H=163 走粉红 bin）
 
 ---
 
