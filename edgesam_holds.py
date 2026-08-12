@@ -296,6 +296,12 @@ class EdgeSamHoldSegmenter:
         candidates.sort(key=lambda c: (-c[0], -c[1]))
         chosen_score, _, chosen = candidates[0]
 
+        # 主连通域过滤（判断与可视化一致）：EdgeSAM 的 mask 可含多个不相连
+        # 区域（1.jpg R_hand: 含端点的紫色 hold 3485px + 远处黄色 hold 2136px
+        # + 碎片共 10 域）。攀岩者只接触一个 hold，取**包含端点的连通域**
+        # （端点代表正在接触的 hold）。若端点不在 mask 内，取最大连通域。
+        chosen = _keep_main_component(chosen, px, py)
+
         # 颜色聚类剔除：EdgeSAM 的 mask 有时把端点附近的"异色岩点/杂质"圈进来
         # （如 9.jpg R_hand：紫色岩点 + 白色 hold 共用一个 mask）。做 k-means 聚类，
         # 只保留"端点像素所属的颜色簇"（hold 的真实颜色簇），剔除异色大块。
@@ -307,6 +313,24 @@ class EdgeSamHoldSegmenter:
             # 聚类把 mask 削得太小 → 说明 mask 本身颜色均匀，回退原 mask
             chosen = candidates[0][2]
 
+        # 取色区域占比检查：mask 主体不能在 person 内（9.jpg L_hand/R_hand 的
+        # mask 100% 在 person mask 内 —— 保护圈保住的其实是身体/手本身，不是
+        # hold，却以 mask 形式投票）。若取色区域 (mask & ~person) < 20%，
+        # 判定为"非岩点"（被身体覆盖，无真实 hold 像素）。
+        if person_mask is not None:
+            _color_region = chosen & ~person_mask.astype(bool)
+            _region_ratio = float(_color_region.sum()) / max(1.0, float(chosen.sum()))
+            if _region_ratio < 0.20:
+                return {
+                    "mask": chosen.astype(np.uint8) * 255,
+                    "mask_bool": chosen.astype(bool),
+                    "score": chosen_score,
+                    "h": 0.0, "s": 0.0, "v": 0.0,
+                    "color_name": "非岩点",
+                    "area": int(chosen.sum()),
+                    "endpoint": (px, py),
+                }
+
         # 用 mask 取 hold 颜色（person_mask 内的身体/衣服像素不进颜色统计）
         h, s, v = _robust_hsv_from_mask(
             self.last_image_bgr, chosen,
@@ -314,11 +338,13 @@ class EdgeSamHoldSegmenter:
         )
         # 颜色名判定优先级（避免 hue bin 把黑/白误判成"红"等）：
         #   1. V<60 AND S<40: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）
-        #   2. S<35 AND V>140: 白色 hold
+        #   2. S<35: 低饱和（白/灰 hold）→ "白"。不要求 V>140 —— 白色 hold
+        #      在阴影/暖光下 V 可能只有 120-140（9.jpg R_foot: 相对白判定
+        #      返回 (0,0,136)，V=136<140 会落入 hue_to_color_name(0,0) 判"红"）
         #   3. 否则: hue_to_color_name（深蓝 hold：V<60 但 S>=60 也走这里）
         if v < 60 and s < 40:
             color_name = "未知(暗)"
-        elif s < 35 and v > 140:
+        elif s < 35:
             color_name = "白"
         else:
             color_name = route_color.hue_to_color_name(h, s)
@@ -332,6 +358,39 @@ class EdgeSamHoldSegmenter:
             "area": int(chosen.sum()),
             "endpoint": (px, py),
         }
+
+
+# ============================================================
+# mask → 主连通域过滤（判断与可视化一致：只保留含端点的连通域）
+# ============================================================
+def _keep_main_component(mask: np.ndarray, px: float, py: float,
+                         min_area: int = 40) -> np.ndarray:
+    """
+    EdgeSAM 的 mask 可含多个不相连区域（1.jpg R_hand：含端点紫色 hold 3485px
+    + 远处黄色 hold 2136px + 碎片共 10 域）。攀岩者只接触一个 hold，
+    只保留**包含端点的连通域**（端点代表正在接触的 hold）。
+
+    若端点不在 mask 内（被 person 扣掉），取面积最大的连通域。
+    若 mask 本来就单域，原样返回。
+    """
+    if mask.sum() < 50:
+        return mask
+    n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(
+        mask.astype(np.uint8), 8)
+    if n_lbl <= 2:
+        return mask
+
+    iy, ix = int(round(py)), int(round(px))
+    iy = max(0, min(iy, mask.shape[0] - 1))
+    ix = max(0, min(ix, mask.shape[1] - 1))
+    ep_label = labels[iy, ix]
+
+    if ep_label > 0 and stats[ep_label, cv2.CC_STAT_AREA] >= min_area:
+        return (labels == ep_label)
+
+    # 端点不在 mask 内：取最大连通域
+    best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    return (labels == best)
 
 
 # ============================================================

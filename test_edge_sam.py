@@ -200,7 +200,7 @@ edgesam_holds._hsv_to_bgr_ = _hsv_to_bgr_  # 让模块内部调用 ok（draw 实
 # 主流程
 # ============================================================
 def analyze_image(image_path: str, output_path: str, args, segmenter, person_masker,
-                  person_masker_vis, landmarker,
+                  landmarker,
                   PoseLandmarksConnections, DrawingUtils, DrawingStyles) -> dict | None:
     image_bgr = cv2.imread(image_path)
     if image_bgr is None:
@@ -233,14 +233,6 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
     else:
         person_mask_d = None
 
-    # 3b. 可视化用更精准的 person mask（可选）：yolo26m 在 640 下 mask 边缘
-    # 更贴合 — yolo26n 会把"手脚紧贴的岩点"吞进人体（图1 紫岩点被盖）。
-    # 算法必须用 yolo26n（换了模型/分辨率会导致 EdgeSAM 候选全变、线路色回归），
-    # 所以这里只用 yolo26m 的 mask 做显示层，不参与任何算法判断。
-    person_mask_vis = None
-    if person_masker_vis is not None:
-        person_mask_vis = person_masker_vis.segment(image_bgr)
-
     # 3. 端点级 EdgeSAM 分割
     segmenter.set_image(image_bgr)
 
@@ -270,7 +262,7 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
             print(f"  ⚠️ EdgeSAM 失败 ({ep_name}): {e}")
             res = None
 
-        if res is None or res['area'] < 100:
+        if res is None or res['area'] < 100 or res['color_name'] == '非岩点':
             samples.append({
                 'point': ep_name, 'name': '非岩点',
                 'px': (px, py), 'visibility': float(lm.visibility),
@@ -315,7 +307,7 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
     # 5. 可视化（在原图上画 mask + 端点 + header；先 mask 再骨架）
     display = image_bgr.copy()
     draw_results(display, samples, route_color, conf, votes, n_segmented,
-                 person_mask=person_mask_vis if person_mask_vis is not None else person_mask)
+                 person_mask=person_mask)
     DrawingUtils.draw_landmarks(
         image=display,
         landmark_list=landmarks,
@@ -353,16 +345,13 @@ def main():
     segmenter = edgesam_holds.EdgeSamHoldSegmenter(args.checkpoint, device=args.device)
     print("  ✅ EdgeSAM 加载完成")
 
-    # YOLO26 person masker（一次性 init；首次会自动下载 yolo26n-seg.pt）
-    print("加载 YOLO26 person masker (yolo26n-seg.pt)…")
-    person_masker = PersonMasker(model_name="yolo26n-seg.pt", device=args.device)
+    # YOLO26 person masker（算法与可视化统一用 yolo26m）
+    # yolo26n (6.4MB) 在 640 下 mask 边缘粗糙，把手脚紧贴的岩点吞进人体
+    #（图1 紫色 hold 被吞 97% → subtract 扣光 → 判黄）。yolo26m (52MB)
+    # mask 更精准（紫色 hold 仅被吞 2%），且保证算法与显示用同一个 mask。
+    print("加载 YOLO26 person masker (yolo26m-seg.pt)…")
+    person_masker = PersonMasker(model_name="yolo26m-seg.pt", device=args.device)
     print("  ✅ YOLO26 person masker 加载完成")
-
-    # 可视化用 yolo26m（更精准的 person mask 显示层）
-    # 算法仍用 yolo26n（换模型会导致 EdgeSAM 候选变化 → 线路色回归）
-    print("加载 YOLO26 person masker (yolo26m-seg.pt, 仅可视化)…")
-    person_masker_vis = PersonMasker(model_name="yolo26m-seg.pt", device=args.device)
-    print("  ✅ 可视化 person masker 加载完成")
 
     # MediaPipe pose
     BaseOptions = mp.tasks.BaseOptions
@@ -401,7 +390,6 @@ def main():
             args=args,
             segmenter=segmenter,
             person_masker=person_masker,
-            person_masker_vis=person_masker_vis,
             landmarker=landmarker,
             PoseLandmarksConnections=PoseLandmarksConnections,
             DrawingUtils=DrawingUtils,
