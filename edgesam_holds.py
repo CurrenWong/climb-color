@@ -665,5 +665,17 @@ def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
     h_final = float(np.degrees(np.arctan2(
         np.mean(np.sin(hr2)), np.mean(np.cos(hr2))
     )) / 2.0) % 180.0
-    return (h_final, float(np.median(sats)), float(np.median(vals)))
+    s_final = float(np.median(sats))
+    v_final = float(np.median(vals))
+    # 粉红/紫边界修正：hue 在粉红区 (>=150) 时，S 中位是判定粉红 vs 紫的关键。
+    # 若 S 中位 < 120 判粉红。但 mask 内若混入高饱和杂质，中位 S 会被拉高。
+    # 用"H>=150 像素的 S 中位"而非全 mask —— 更贴近 hold 本身的饱和度。
+    if h_final >= route_color.PINK_HUE_MIN:
+        hi_pix = mask_pixels[mask_pixels[:, 0] >= route_color.PINK_HUE_MIN]
+        if len(hi_pix) >= 30:
+            s_hi = float(np.median(hi_pix[:, 1]))
+            # 粉红 hold 通常低饱和：S 中位 < 120 → 粉红；否则保持原值走紫 bin
+            if s_hi < route_color.PINK_SAT_MAX:
+                s_final = s_hi
+    return (h_final, s_final, v_final)
 
