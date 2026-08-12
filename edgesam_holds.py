@@ -246,7 +246,16 @@ class EdgeSamHoldSegmenter:
                 continue
             if area > area_cap:
                 continue
-            if not m_work[iy, ix]:
+            # 必须包含端点 OR（端点本身在 person 内时）mask 距端点足够近。
+            # 脚的端点落在脚上（person 内），而 hold 在脚下方（person 外）——
+            # 此时 mask 不包含端点像素（5.jpg R_foot），但不能因此全过滤。
+            contains_ep = bool(m_work[iy, ix])
+            if not contains_ep and person_mask is not None and person_mask[iy, ix]:
+                # 端点被 person 覆盖：接受"距端点 < PROTECT_RADIUS*2 内非空"的 mask
+                ep_region = m_work[max(0, iy - 40):iy + 41, max(0, ix - 40):ix + 41]
+                if ep_region.sum() < 30:
+                    continue
+            elif not contains_ep:
                 continue
             if float(scores[i]) < score_min_main:
                 continue
@@ -270,7 +279,12 @@ class EdgeSamHoldSegmenter:
                 area = int(m_work.sum())
                 if area < 50 or area > soft_area_cap:
                     continue
-                if not m_work[iy, ix]:
+                contains_ep = bool(m_work[iy, ix])
+                if not contains_ep and person_mask is not None and person_mask[iy, ix]:
+                    ep_region = m_work[max(0, iy - 40):iy + 41, max(0, ix - 40):ix + 41]
+                    if ep_region.sum() < 30:
+                        continue
+                elif not contains_ep:
                     continue
                 if float(scores[i]) < soft_score_min:
                     continue
