@@ -89,7 +89,7 @@ img/N.jpg
     ┌─────────────────────────────────────────────────────────┐
     │ segment_endpoint(px, py, person_mask, …)                │
     │   input: box (端点±80px) + 1 正点 + 18 负点             │
-    │   EdgeSAM → 4 mask 候选 → 选 score×area 最佳            │
+    │   EdgeSAM → 4 mask 候选 → 按 (-score, -area) 排序取最佳 │
     │   mask -= person_mask (18px 保护圈内保留)                │
     │   _keep_main_component  (只留含端点的连通域)             │
     │   _keep_endpoint_cluster  (k-means, 9.jpg 紫+白 hold)    │
