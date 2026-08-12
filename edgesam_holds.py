@@ -30,6 +30,7 @@ import torch
 import edgesam_stub  # noqa: F401 必须在 from edge_sam 之前注入 stub
 import route_color  # 色相 → 色名、皮肤过滤、墙色常量
 from edge_sam import sam_model_registry, SamPredictor  # noqa: E402
+from yolo_person_mask import sample_edge_points  # noqa: E402  人体 mask → 边缘外 negative prompt
 
 
 # 默认 checkpoint / 设备
@@ -114,6 +115,8 @@ class EdgeSamHoldSegmenter:
         num_multimask_outputs: int = 3,
         use_stability_score: bool = True,
         white_route_mode: bool = False,
+        person_mask: np.ndarray | None = None,
+        mask_subtract_person: bool = False,
     ) -> dict:
         """
         对 (px, py) 这个端点做 hold 分割。
@@ -121,12 +124,26 @@ class EdgeSamHoldSegmenter:
         white_route_mode: True 时加强负点密度 + 用更严的面积上限 + 降低 score 门槛。
         用于白岩点这类容易跟墙颜色重叠的场景。
 
+        person_mask: HxW bool，从 YOLO26 得到的攀岩者人体 mask。若提供：
+          - 把 person_mask **边缘外**的点作为 negative prompt（比手工撒点更准）
+            → 让 EdgeSAM 把"端点附近的身体"区分开，更聚焦于"端点所在的物体"
+          - mask_subtract_person=True 时再额外把 SAM 输出 mask 与 person_mask 取差集
+            （剥除手腕/衣服等"嵌在身体里的碎片"）。默认 False：端点本身就嵌在
+            person_mask 里，subtract 会让 mask 不含端点被过滤掉。
+
+        mask_subtract_person (默认 False)：
+          - False（推荐）：只给 negative prompt，让 EdgeSAM 自己处理手表等碎片
+          - True: 把 hold mask 里的 person_mask 像素减掉（更激进，可能误伤）
+            → 适合 hold 与身体重叠程度已知很小的场景
+
         返回 dict:
           mask: HxW bool（端点所在 hold 的 mask，原图坐标系）
+          mask_bool: HxW bool（同上，保留别名）
           score: float（mask 置信度）
           h, s, v: float（mask 内颜色统计）
           color_name: str（中文色名）
           area: int（mask 像素数）
+          endpoint: (px, py)
         """
         if not self.predictor.is_image_set:
             raise RuntimeError("先调用 set_image() 再 segment_endpoint()")
@@ -136,6 +153,13 @@ class EdgeSamHoldSegmenter:
             px, py, body_cx, body_cy,
             white_route=white_route_mode,
         )
+
+        # YOLO26 提供的 person mask：边缘外的点作为更精确的 negative prompt
+        if person_mask is not None and person_mask.any():
+            edge_pts = sample_edge_points(person_mask, n=12, max_radius=80)
+            if len(edge_pts) > 0:
+                neg = np.vstack([neg, edge_pts])
+
         point_coords = np.vstack([
             [[px, py]],
             neg,
@@ -165,16 +189,22 @@ class EdgeSamHoldSegmenter:
         score_min_main = 0.35 if white_route_mode else 0.4
         candidates = []
         for i, m in enumerate(masks):
-            area = int(m.sum())
+            # 如果提供 person_mask，先把 m 减去 person 区域（剥除身体/衣服泄漏）
+            if mask_subtract_person and person_mask is not None:
+                m_work = m.copy()
+                m_work[person_mask] = False
+            else:
+                m_work = m
+            area = int(m_work.sum())
             if area < 100:
                 continue
             if area > area_cap:
                 continue
-            if not m[iy, ix]:
+            if not m_work[iy, ix]:
                 continue
             if float(scores[i]) < score_min_main:
                 continue
-            candidates.append((float(scores[i]), area, m))
+            candidates.append((float(scores[i]), area, m_work))
 
         # 兜底：放低 score 门槛
         if not candidates:
@@ -182,14 +212,19 @@ class EdgeSamHoldSegmenter:
             soft_area_cap = img_area * 0.45
             soft = []
             for i, m in enumerate(masks):
-                area = int(m.sum())
+                if mask_subtract_person and person_mask is not None:
+                    m_work = m.copy()
+                    m_work[person_mask] = False
+                else:
+                    m_work = m
+                area = int(m_work.sum())
                 if area < 50 or area > soft_area_cap:
                     continue
-                if not m[iy, ix]:
+                if not m_work[iy, ix]:
                     continue
                 if float(scores[i]) < soft_score_min:
                     continue
-                soft.append((float(scores[i]), area, m))
+                soft.append((float(scores[i]), area, m_work))
             if soft:
                 candidates = soft
 
@@ -212,8 +247,16 @@ class EdgeSamHoldSegmenter:
 
         # 用 mask 取 hold 颜色
         h, s, v = _robust_hsv_from_mask(self.last_image_bgr, chosen)
-        # 白岩点：S<35 + V>140 → 直接判定为"白"（绕过 hue_to_color_name 对 H=0 的歧义）
-        color_name = "白" if (s < 35 and v > 140) else route_color.hue_to_color_name(h, s)
+        # 颜色名判定优先级（避免 hue bin 把黑/白误判成"红"等）：
+        #   1. V<60 AND S<40: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）
+        #   2. S<35 AND V>140: 白色 hold
+        #   3. 否则: hue_to_color_name（深蓝 hold：V<60 但 S>=60 也走这里）
+        if v < 60 and s < 40:
+            color_name = "未知(暗)"
+        elif s < 35 and v > 140:
+            color_name = "白"
+        else:
+            color_name = route_color.hue_to_color_name(h, s)
 
         return {
             "mask": chosen.astype(np.uint8) * 255,  # uint8 for 可视化

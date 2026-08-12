@@ -5,6 +5,11 @@
 # EdgeSAM checkpoints (~40MB each, download on demand)
 weights/
 
+# YOLO26 segmentation weights (downloaded by ultralytics on first use, ~6.4MB)
+yolo26*-seg.pt
+yolo26*.pt
+*.pt
+
 # EdgeSAM repo clone (is a self-contained git repo with its own .git; don't try to nest)
 EdgeSAM/
 
