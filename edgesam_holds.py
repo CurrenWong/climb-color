@@ -203,10 +203,17 @@ class EdgeSamHoldSegmenter:
         # box prompt: 端点周围 box_half px 的方框
         box = None
         if use_box_prompt:
-            bx1 = max(0, int(round(px)) - box_half)
-            by1 = max(0, int(round(py)) - box_half)
-            bx2 = min(self.last_w - 1, int(round(px)) + box_half)
-            by2 = min(self.last_h - 1, int(round(py)) + box_half)
+            # 高分辨率图 box 自适应放大：默认 box_half=80 在 3000+ px 高图上只
+            # 占 5%，hold 经常落在 box 边缘外，EdgeSAM 切不到 (13.jpg L_foot
+            # 蓝色 hold 在端点 100-150 px 外，box_half=80 切不到)。
+            # 按图高自适应：box_half = max(box_half, h/20)（3073 px → 150+）
+            # 但 person_mask_d 不够大时 box 超出 person 也无意义，上限 250。
+            eff_box_half = max(box_half, self.last_h // 20)
+            eff_box_half = min(eff_box_half, 250)
+            bx1 = max(0, int(round(px)) - eff_box_half)
+            by1 = max(0, int(round(py)) - eff_box_half)
+            bx2 = min(self.last_w - 1, int(round(px)) + eff_box_half)
+            by2 = min(self.last_h - 1, int(round(py)) + eff_box_half)
             box = np.array([bx1, by1, bx2, by2], dtype=np.float64)
 
         # 正点（端点）+ 负点（白路线模式更激进）
