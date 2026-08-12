@@ -110,6 +110,26 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
         # ---------- Mask：只在 mask 区域内 blend（之前 addWeighted 全图变暗是 bug） ----------
         if s.get('mask_uint8') is not None:
             mask_bool = s['mask_bool']
+
+            # 可视化层连通域过滤：SAM 的 mask 可以包含多个不相连的区域
+            #（如 1.jpg R_hand：手 + 远处黄色 hold + 碎片共 5 个域），显示出来
+            # 很困惑。这里只显示"包含端点或面积最大的连通域"（hold 主体），
+            # 丢弃远处碎片。注意：只影响显示，颜色判定仍用完整 mask。
+            disp_mask = mask_bool
+            n_cc, labels, stats, _ = cv2.connectedComponentsWithStats(
+                mask_bool.astype(np.uint8), 8)
+            if n_cc > 2:
+                iy, ix = int(px), int(py)
+                iy = max(0, min(iy, mask_bool.shape[0] - 1))
+                ix = max(0, min(ix, mask_bool.shape[1] - 1))
+                ep_label = labels[iy, ix]
+                if ep_label > 0 and stats[ep_label, cv2.CC_STAT_AREA] >= 40:
+                    disp_mask = (labels == ep_label)
+                else:
+                    best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+                    disp_mask = (labels == best)
+            mask_bool = disp_mask
+
             color = np.array(_hsv_to_bgr_(s['h'], s['s'], s['v']), dtype=np.uint8)
             # mask 颜色加饱和/亮（避免色相分布后颜色发暗发灰）
             vivid_color = _vivid_color(s['h'], s['s'], s['v'])
