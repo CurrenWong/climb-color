@@ -84,11 +84,16 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
     cv2.putText(image_bgr, vote_str, (10, 72),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 230, 255), 1, cv2.LINE_AA)
 
-    # ---------- 人体 mask：很淡的紫色描边（不进 hold 颜色统计） ----------
+    # ---------- 人体 mask：很淡的紫色填充 + 描边（不进 hold 颜色统计） ----------
     if person_mask is not None and person_mask.any():
         pm_u8 = person_mask.astype(np.uint8) * 255
+        # 淡紫半透明填充（让"人体"区域一眼可见，但不抢 hold mask 的视觉）
+        person_overlay = image_bgr.copy()
+        person_overlay[pm_u8 > 0] = (255, 180, 180)  # 淡紫
+        cv2.addWeighted(person_overlay, 0.18, image_bgr, 0.82, 0, image_bgr)
+        # 紫描边 2px（与 hold mask 的亮青色边界明显区分）
         pm_contours, _ = cv2.findContours(pm_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(image_bgr, pm_contours, -1, (180, 130, 255), 1)  # 淡紫
+        cv2.drawContours(image_bgr, pm_contours, -1, (180, 130, 255), 2)  # 淡紫
 
     LABEL_DX = {'L_hand': -1, 'R_hand': +1, 'L_foot': -1, 'R_foot': +1}
     for s in samples:
@@ -107,11 +112,13 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
                      + vivid_color.astype(np.float32) * alpha)
             image_bgr[idx] = np.clip(blend, 0, 255).astype(np.uint8)
 
-            # mask 边界线（亮色 2px，外部黑 1px 增强对比）
+            # mask 边界线：固定高对比亮青色（不随 hold 颜色变 — 白色 hold 的
+            # vivid 色是灰白，和人体淡紫描边、白墙都分不清）
+            # 外层黑色 2px 增强对比，内层亮青 3px
             mask_u8 = (mask_bool.astype(np.uint8)) * 255
             contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(image_bgr, contours, -1, (0, 0, 0), 4)              # 黑色 1px 外环
-            cv2.drawContours(image_bgr, contours, -1, vivid_color.tolist(), 2)   # 亮色 2px
+            cv2.drawContours(image_bgr, contours, -1, (0, 0, 0), 6)                # 黑色外环
+            cv2.drawContours(image_bgr, contours, -1, (255, 215, 0), 3)            # 亮青色 3px
 
         # ---------- 端点：红色实心点 + 白圈（不变） ----------
         cv2.circle(image_bgr, (px, py), 5, (255, 255, 255), -1)
