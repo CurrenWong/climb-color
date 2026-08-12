@@ -369,17 +369,6 @@ class EdgeSamHoldSegmenter:
         # （端点代表正在接触的 hold）。若端点不在 mask 内，取最大连通域。
         chosen = _keep_main_component(chosen, px, py, self.last_image_bgr)
 
-        # 颜色聚类剔除：EdgeSAM 的 mask 有时把端点附近的"异色岩点/杂质"圈进来
-        # （如 9.jpg R_hand：紫色岩点 + 白色 hold 共用一个 mask）。做 k-means 聚类，
-        # 只保留"端点像素所属的颜色簇"（hold 的真实颜色簇），剔除异色大块。
-        chosen = _keep_endpoint_cluster(
-            self.last_image_bgr, chosen, px, py,
-            min_area=60, n_clusters=3,
-        )
-        if chosen.sum() < 50:
-            # 聚类把 mask 削得太小 → 说明 mask 本身颜色均匀，回退原 mask
-            chosen = candidates[0][2]
-
         # 取色区域占比检查：mask 主体不能在 person 内（9.jpg L_hand/R_hand 的
         # mask 100% 在 person mask 内 —— 保护圈保住的其实是身体/手本身，不是
         # hold，却以 mask 形式投票）。若取色区域 (mask & ~person) < 20%，
@@ -505,83 +494,6 @@ def _keep_main_component(mask: np.ndarray, px: float, py: float,
     # 兜底：最大连通域
     best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     return (labels == best)
-
-
-# ============================================================
-# mask → 颜色聚类剔除（保留端点所在颜色簇，剔除异色岩点/杂质）
-# ============================================================
-def _kmeans_simple(X: np.ndarray, k: int, iters: int = 25, seed: int = 42
-                   ) -> tuple[np.ndarray, np.ndarray]:
-    """手写 k-means（无 sklearn 依赖）。返回 (labels, centers)。"""
-    rng = np.random.RandomState(seed)
-    centers = X[rng.choice(len(X), k, replace=False)].copy()
-    for _ in range(iters):
-        d = np.linalg.norm(X[:, None, :] - centers[None, :, :], axis=2)
-        lab = d.argmin(1)
-        for i in range(k):
-            if (lab == i).any():
-                centers[i] = X[lab == i].mean(0)
-    d = np.linalg.norm(X[:, None, :] - centers[None, :, :], axis=2)
-    return d.argmin(1), centers
-
-
-def _keep_endpoint_cluster(image_bgr: np.ndarray, mask: np.ndarray,
-                           px: float, py: float,
-                           min_area: int = 60, n_clusters: int = 3) -> np.ndarray:
-    """
-    EdgeSAM 的 mask 可能包含"端点附近多个不同颜色的物体"（如 9.jpg R_hand：
-    紫色岩点 + 白色 hold 共用一个 mask，紫色占 73%）。做 HSV 颜色聚类，
-    只保留**端点像素所属的颜色簇** —— 端点代表攀岩者正在接触的那个 hold。
-
-    返回聚类后的 mask（只含端点簇）。若 mask 像素太少无法聚类，或端点簇
-    面积 < min_area，返回原 mask。
-    """
-    ys, xs = np.where(mask)
-    n = len(xs)
-    if n < 80:
-        return mask
-
-    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
-    pix = hsv[ys, xs]  # (N, 3) H, S, V
-
-    labels, centers = _kmeans_simple(pix, n_clusters)
-
-    # 端点像素的颜色：端点本身可能在 person_mask 内被剥掉（保护圈外），
-    # 取 mask 内距离端点最近的像素作为参考色
-    iy, ix = int(round(py)), int(round(px))
-    iy = max(0, min(iy, mask.shape[0] - 1))
-    ix = max(0, min(ix, mask.shape[1] - 1))
-    if mask[iy, ix]:
-        ep_pix = hsv[iy, ix]
-    else:
-        d2 = (xs - ix) ** 2 + (ys - iy) ** 2
-        ep_pix = pix[int(np.argmin(d2))]
-
-    # 端点像素归属的簇
-    dists = np.linalg.norm(centers - ep_pix, axis=1)
-    ep_cluster = int(np.argmin(dists))
-    ep_n = int((labels == ep_cluster).sum())
-    if ep_n < min_area:
-        # 端点簇太小 → 说明 mask 颜色本来就单一，聚类无意义
-        return mask
-
-    # 保护规则：只有"端点簇是白色系且占比小"才剔除异色块。
-    #   - 白色 hold 低饱和（S 中位 < WHITE_REL_SAT_MAX）且高亮（V 中位 > WHITE_BRIGHT_MIN）
-    #   - 彩色 hold（蓝/橙/紫…）S 高，不该聚类剔除（9 图回归的根因：
-    #     k-means 把纯色 mask 拆成明暗簇，端点落在非主簇 → 面积骤减判错）
-    #   - 端点簇占 mask 比例 > 25% → mask 颜色本就以端点色为主，无需剔除
-    ep_pix_all = pix[labels == ep_cluster]
-    ep_s_med = float(np.median(ep_pix_all[:, 1]))
-    ep_v_med = float(np.median(ep_pix_all[:, 2]))
-    ep_ratio = ep_n / n
-    is_whiteish = (ep_s_med < WHITE_REL_SAT_MAX) and (ep_v_med > WHITE_BRIGHT_MIN)
-    if ep_ratio > 0.25 or not is_whiteish:
-        return mask
-
-    # 只保留端点簇
-    m2 = np.zeros_like(mask)
-    m2[ys[labels == ep_cluster], xs[labels == ep_cluster]] = True
-    return m2
 
 
 # ============================================================

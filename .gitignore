@@ -15,7 +15,8 @@ EdgeSAM/
 
 # Image files
 *.jpg
-*.jpeg*.png
+*.jpeg
+*.png
 *.gif
 *.bmp
 *.webp
