@@ -81,17 +81,17 @@ result_route_*.jpg
 ```
 img/1.jpg
   ↓
-[一次性] load EdgeSAM (edge_sam.pth, CPU) + YOLO26 (yolo26n-seg.pt) + MediaPipe Pose
+[一次性] load EdgeSAM (edge_sam.pth, CPU) + YOLO26 (yolo26m-seg.pt) + MediaPipe Pose
   ↓
 [每张图]
   image_bgr ← cv2.imread(...)
   ↓
-  [A] YOLO26.person_masker.segment(image_bgr)
-      yolo26n-seg 在 COCO class=0 (person)
+  [A] YOLO26m.person_masker.segment(image_bgr)   ← 算法与可视化用同一个 mask
+      yolo26m-seg 在 COCO class=0 (person)
       → 合并所有 person 检测 → HxW bool (person_mask)
       ↓
-      person_mask_d6   = dilate_mask(person_mask, 6)         ← 给 negative prompt
-      person_mask_excl  = dilate_mask(person_mask, 15)        ← 给颜色统计排除
+      person_mask_d6 = dilate_mask(person_mask, 6)   ← 负点采样用
+      算法 subtract 用未膨胀 person_mask（避免吞掉手/脚旁的 hold）
   ↓
   [B] detect_pose(image_bgr)             ← MediaPipe Pose 原图检测
       detect_pose(flip)                   ← 翻转图检测
@@ -102,41 +102,71 @@ img/1.jpg
   ↓
   对每个端点 (4 次, 顺序 loop)：
     segment_endpoint(px, py,
-                     person_mask=person_d6,
-                     exclude_mask=person_excl,
-                     use_box_prompt=True,      # box prompt 启用
+                     person_mask=person_d6,          # 负点用 (膨胀版)
+                     subtract_person_mask=person_mask, # subtract 用 (未膨胀版)
+                     use_box_prompt=True,       # box prompt 启用
                      mask_subtract_person=True)  # mask 剥离人体
       │
       ├─ box prompt: 端点周围 box_half*2 px 方框 (默认 80 → 160x160)
       │              box 中心固定 = 端点，完全不依赖 detect_holds
       ├─ positive point: 端点 (px, py)
-      ├─ negative points: 4-6 手工远处 + 12 body 边缘外
+      ├─ negative points: 6 手工远处 + 12 person 边缘外 (用膨胀版)
       └─ EdgeSAM.predict(
             box=box,
-            point_coords=[1+端点, 16 neg],
+            point_coords=[1+端点, 18 neg],
             point_labels=[1, 0, 0, …],
-            num_multimask_outputs=4,          # 4 个候选 (was 3)
+            num_multimask_outputs=4,
             use_stability_score=True,
           )
          → 4 个 mask 候选
       ↓
-      mask_subtract_person=True:
+      mask_subtract_person=True（用 subtract_person_mask = 未膨胀版）：
         mask -= person_mask（把人体/鞋/腿/手像素剥掉）
-        但保留端点周围 18px 保护圈（否则端点本身在 person 内，
-        扣光后 m[iy, ix] 恒 False → 全被过滤）
+        但保留端点周围 18px 保护圈（否则端点本身在 person 内会被扣光）
+        关键：subtract 用未膨胀 mask —— 膨胀6px 会把"手/脚旁的 hold"也
+        吞进 person（5.jpg L_foot 脚下橙色岩点被吞 → 取色区域=0 判非岩点；
+        用未膨胀版后岩点保留，判橙）
       ↓
       筛选候选：
-        area: 100 < area < img_area * 0.3  (白路线 0.2)
+        area: 100 < area < img_area * 0.3
         score >= 0.4
-        包含端点 (px, py)
-        in_body_ratio (与 person_mask 重叠 / mask_total) <= 0.65
+        包含端点 (px, py) —— 但若端点本身在 person 内（脚在 person 内、
+        hold 在脚下 person 外），放宽为"端点 40px 邻域非空"(5.jpg R_foot)
       ↓
-      排序：stability_score 降序优先，同分 area 降序（大 mask 优先）
+      排序：stability_score 降序优先，同分 area 降序
         candidates.sort(key=lambda c: (-c[0], -c[1]))
       → 选中 chosen_mask
       ↓
-      _robust_hsv_from_mask(chosen_mask,
-                            exclude_mask=person_excl)
+      主连通域过滤 _keep_main_component(chosen, px, py):
+        只保留"包含端点的连通域"（判断与可视化一致）
+        1.jpg R_hand mask 有 10 个连通域：含端点紫色 hold 3485px +
+        远处黄色 hold 2136px + 碎片 —— 不过滤则颜色统计被黄紫混合
+      ↓
+      颜色聚类 _keep_endpoint_cluster(chosen, px, py):
+        mask 含多色时（9.jpg R_hand 紫色岩点 + 白色 hold）做 k-means，
+        只保留端点所属颜色簇
+      ↓
+      取色区域占比检查:
+        (mask & ~person) / mask < 20% → 判"非岩点"
+        （9.jpg L/R_hand mask 100% 在 person 内——18px 保护圈保住的
+        是身体/手本身，不是 hold，不该投票）
+      ↓
+      _robust_hsv_from_mask(chosen, exclude_mask=person_mask):
+        mask 内像素 (排除 person) 的 HSV 统计
+      ↓
+      颜色判定顺序：
+        V<60 AND S<40      → '未知(暗)'
+        S<35               → '白'  (不要求 V>140 —— 白色 hold 在阴影/暖光
+                                   下 V 可只有 120-140，9.jpg R_foot 相对白
+                                   返回 (0,0,136) 曾误判"红")
+        else               → route_color.hue_to_color_name(h, s)
+  ↓
+  4 个端点投票 → 多数票 = 线路色 + 置信度
+  ↓
+  draw_results()  ← mask 半透明覆盖 + header + 端点 + 标签
+  ↓
+result_edgesam_*.jpg
+```
         ├─ 取出 mask & ~exclude_mask 内像素
         ├─ bbox 5×5 网格采 25 个点，每点 5×5 patch
         ├─ 圆形 hue 均值聚合
@@ -162,59 +192,81 @@ result_edgesam_*.jpg
 |---|---|---|
 | EdgeSAM `.pth` | 自带 / 手放 | ✅ `weights/edge_sam.pth` (38 MB) + 3x |
 | EdgeSAM Python 包 | `pip install -e ./EdgeSAM`（绕过训练依赖） | ✅ |
-| YOLO26 `.pt` | ultralytics 自动下载 | ✅ `yolo26n-seg.pt` (6.4 MB) |
+| YOLO26 `.pt` | ultralytics 自动下载 | ✅ `yolo26m-seg.pt` (52 MB)；`yolo26n/s` 保留供对比 |
 | MediaPipe Pose `.task` | 自带 | ✅ `pose_landmarker_full.task` 等 |
 
 `edgesam_stub.py` 在 `import edge_sam` 之前注入 `mmdet` / `mmengine` / `loralib` / `projects.EfficientDet` 假模块（仓库顶层训练-only 依赖），并 monkeypatch `torch.load(map_location='cpu')`（checkpoint 是 CUDA 训练的）。
 
 ---
 
-## 已知未解决：9.jpg R_foot mask 与人体重合 / 颜色不准
+## 当前状态（yolo26m 统一 + 全套修复）
 
-### 已做改动（commit 历史）
+### 9 图线路色结果（真实值 vs 当前输出）
+
+| 图 | 真实 | 当前 | 状态 |
+|---|---|---|---|
+| 1 | 紫 | 紫 75% | ✅ |
+| 2 | 黄 | 黄 67% | ✅ |
+| 3 | 绿 | 绿 100% | ✅ |
+| 4 | 紫 | 紫 100% | ✅ |
+| 5 | 橙 | **橙 67%** | ✅ |
+| 6 | 黄 | 白 100% | ❌ |
+| 7 | 红 | 红 67% | ✅ |
+| 8 | 蓝 | 紫 100% | ❌ |
+| 9 | 白 | 白 100% | ✅ |
+
+**7/9 正确**；6/8 错误（EdgeSAM 切割问题，非后处理可解）。
+
+### 已做改动（commit 历史，v2 阶段）
 
 | Commit | 改动 | 效果 |
 |---|---|---|
-| `dba9f22` | 颜色统计排除 person_mask 内像素 | hand 皮肤不拉偏 hue |
-| `b7729b1` | `candidates.sort(key=lambda c: (-c[0], -c[1]))` — stability_score ↓, area ↓ tie-break | 完整 mask 优先 |
-| `ec30e80` | **box prompt 启用**：box=端点周围 160px, `num_multimask_outputs=3→4`, 不依赖 detect_holds | 9.jpg R_foot mask 1688→13527 (完整 hold shape) |
-| (前 commit) | `mask_subtract_person=True` 默认 + 端点 18px 保护圈 | **mask 与人体不重合** |
-| `2a127c4` | **相对白判定** + **颜色聚类剔除** | 见下 |
+| `ec30e80` | box prompt 启用 (box_half=80, num_multimask=4), 不依赖 detect_holds | 完整 hold mask |
+| `2a127c4` | 相对白判定 + 颜色聚类剔除 | 9.jpg R_foot 黄→白 |
+| `29c20ec` | 可视化层连通域过滤（后改为算法层，见 `e8551a7`） | 显示单一区域 |
+| `ebb8378` | ~~yolo26m 显示层~~（已废弃，见下） | — |
+| `e8551a7` | **统一 yolo26m**（算法=可视化，废除双模型欺骗）；`_keep_main_component` 主连通域过滤；`S<35` 判白（修 S=0→红 bug）；取色区域<20% 判非岩点 | 1.jpg R_hand 黄→紫 |
+| `0508539` | 端点在 person 内时放宽"必须包含端点"（接受 40px 邻域非空） | 5.jpg R_foot 未知→橙 |
+| `d7d0144` | `_keep_main_component` 端点缺失时取"最近高饱和亮色域"而非最大域 | 5.jpg R_foot 绳→脚下岩点 |
+| (当前) | **subtract 用未膨胀 person_mask**（负点仍用膨胀版）；取色检查/颜色统计同步 | 5.jpg L_foot 非岩点→橙 |
 
-### `2a127c4` 双修复
+### 关键修复细节
 
-**1. 相对白判定（`_robust_hsv_from_mask` 路径 B）**
-- 问题：暖光下白色 hold 的 S=35-75（不是绝对 <35），且 hold 只占 mask 一部分 → 绝对白判定 `S<35 占比>50%` 失效，9.jpg R_foot 被判"黄"
-- 修复：对比 mask 与 mask 外扩 20px 环境环的中位 S/V — `S_ratio<0.60 AND maskS<75 AND V_ratio>=0.70` → 白
-- 效果：9.jpg R_foot 黄→白；8.jpg 蓝 hold (S_ratio=0.50 但 maskS=114) 被绝对 S 挡掉不误判
+**1. 统一 yolo26m（`e8551a7`）**
+- 之前算法用 yolo26n (6.4MB) + 可视化用 yolo26m (52MB) — 显示与判定不一致，掩盖问题
+- 统一后用 yolo26m：1.jpg 紫色 hold 不再被吞（yolo26n 吞 97%），R_hand 黄→紫
 
-**2. 颜色聚类剔除（`_keep_endpoint_cluster`）**
-- 问题：9.jpg R_hand 的 EdgeSAM mask 同时包含上方紫色岩点 (73.6%) + 被抓的白色 hold (14.3%) → 颜色统计混成"粉红"
-- 修复：mask 内手写 k-means (k=3, 无 sklearn 依赖)，只保留**端点像素所属的颜色簇**，剔除异色大块
-- 保护规则（防回归）：仅当端点簇"白色系"（S_med<75, V_med>140）且占比 <25% 时剔除；纯色 hold（蓝/橙/绿）原样保留
-- 效果：9.jpg R_hand 粉红→白；9.jpg 线路色 黄33%→**白67%**；图 1-8 零回归
+**2. 主连通域过滤（`_keep_main_component`）**
+- EdgeSAM mask 可含多个不相连区域（1.jpg R_hand: 含端点紫色 hold 3485px + 远处黄 hold 2136px + 碎片共 10 域）
+- 取"包含端点的连通域"；端点缺失时取"最近高饱和亮色域"（5.jpg R_foot 候选3 的最大域 658px 是左侧绳/衣物，正确 hold 是距 45px 的高饱和域 345px）
 
-### mask_subtract_person 效果（9.jpg）
+**3. `S<35` 判白（修红误判）**
+- 相对白判定返回 (0,0,136)（白色 hold 在阴影/暖光下 V 可 <140）
+- 原 `s<35 and v>140` 不满足 → 落入 hue_to_color_name(0,0) → 判红
+- 改 `s<35` 直接判白 → 9.jpg R_foot 红→白
 
-| 端点 | 之前 (含人体) | 现在 (剥离后) |
+**4. 取色区域 <20% 判非岩点**
+- 9.jpg L/R_hand mask 100% 在 person 内 — 18px 保护圈保住的其实是手/身体，不是 hold，却以 mask 投票
+- 取色区域 (mask & ~person) / mask < 20% → 非岩点
+
+**5. subtract 用未膨胀 person_mask（当前）**
+- 负点仍用膨胀版（让 EdgeSAM 避开身体边缘）
+- subtract 用未膨胀版 — 膨胀6px 会把"手/脚旁的 hold"吞进 person
+- 5.jpg L_foot 脚下橙色岩点被膨胀版吞 → 取色区域=0 判非岩点；用未膨胀版后岩点保留 → 判橙
+
+### 已知限制（6/8 图，EdgeSAM 切割问题）
+
+| 图 | 问题 | 根因 |
 |---|---|---|
-| L_hand | 22273 | 2951 |
-| R_hand | 15206 | 7476 |
-| R_foot | 13527 | 7228 |
-
-### 当前观察（9.jpg，commit `2a127c4` 后）
-
-- ✅ **R_foot 白**（相对白判定）— mask 正确贴合白色 hold
-- ✅ **R_hand 白**（颜色聚类剔除紫色岩点）— mask 不再含上方紫色岩点
-- ✅ **线路色 = 白 67%**（L_hand=黄 是残余误判，hold 也是白色但 mask 含杂质）
-- ⚠️ L_hand 仍判"黄"（area=2951，S=53.5 V=99.5 — 相对白判定 V_ratio 不足未触发）
+| 6 | R_foot 判白 (取色3570px 全白) | EdgeSAM 没切到脚下黄色 hold；L_foot mask 空 |
+| 8 | R_foot 判紫 (H150-164 265px) | 蓝墙+蓝 hold 同色环境，EdgeSAM 切到粉/紫区；L/R_hand 取色=0（蓝 hold 被 person 吞） |
 
 ### 剩余修复方向
 
 | 修复 | 改动量 | 风险 |
 |---|---|---|
-| L_hand 同款处理（诊断 mask 内白色占比为何不足） | 中等 | 低 |
-| 缩 `box_half` (80→50) 减小 box 贪心 | 一行 | 可能切不到完整 hold |
+| 6/8 图 EdgeSAM 切不到正确 hold（box 偏移/负点调整） | 中等 | 需针对性调试 |
+| 5.jpg R_hand 判红 (V=49 暗) | 中等 | 手部 hold 被 person 部分吞 |
 | `mask_input` 迭代扩展（EdgeSAM 官方推荐） | 中等 | 慢 1.5-2x |
 | 换 EdgeSAM-3x 模型（语义更强） | 中等 | 慢一点，无逻辑风险 |
 

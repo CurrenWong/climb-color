@@ -125,6 +125,7 @@ class EdgeSamHoldSegmenter:
         person_mask: np.ndarray | None = None,
         exclude_mask: np.ndarray | None = None,
         mask_subtract_person: bool = True,
+        subtract_person_mask: np.ndarray | None = None,
     ) -> dict:
         """
         对 (px, py) 这个端点做 hold 分割。
@@ -160,6 +161,12 @@ class EdgeSamHoldSegmenter:
           - False（推荐）：只给 negative prompt，让 EdgeSAM 自己处理手表等碎片
           - True: 把 hold mask 里的 person_mask 像素减掉（更激进，可能误伤）
             → 适合 hold 与身体重叠程度已知很小的场景
+
+        subtract_person_mask: HxW bool 可选 — 用于 mask_subtract_person 的 mask。
+          默认 = person_mask（膨胀版，负点+subtract 用同一个）。
+          传未膨胀的原始 person mask 可以让"脚下方/手旁边的 hold"不被吞掉
+          （5.jpg L_foot: 膨胀6px 把脚下橙色岩点吞进 person → 取色区域=0
+          判非岩点；用未膨胀版则保留岩点）。
 
         返回 dict:
           mask: HxW bool（端点所在 hold 的 mask，原图坐标系）
@@ -232,14 +239,18 @@ class EdgeSamHoldSegmenter:
             # 核心价值：让"岩点 mask"与"人体"不重合 — 鞋/手/腿/衣服的像素被扣掉。
             m_work = m.copy()
             if mask_subtract_person and person_mask is not None:
+                # 负点用 person_mask（膨胀版，避开身体边缘），
+                # subtract 用 subtract_person_mask（可传未膨胀版，避免吞掉
+                # 手/脚旁的 hold —— 5.jpg L_foot 脚下岩点被膨胀6px吞掉）
+                sub_mask = subtract_person_mask if subtract_person_mask is not None else person_mask
                 # 端点保护圈：mask 内保留以 (ix,iy) 为圆心、protect_radius 内的 person 像素
-                protect = person_mask.copy()
+                protect = sub_mask.copy()
                 Y, X = np.ogrid[:self.last_h, :self.last_w]
                 dist = np.hypot(X - ix, Y - iy)
                 protect[(dist > PERSON_MASK_PROTECT_RADIUS) | (m == 0)] = False
                 # 保护圈内的人体像素先"摘出来"再减
                 keep_ring = m & protect
-                m_work[person_mask] = False
+                m_work[sub_mask] = False
                 m_work |= keep_ring
             area = int(m_work.sum())
             if area < 100:
@@ -269,12 +280,13 @@ class EdgeSamHoldSegmenter:
             for i, m in enumerate(masks):
                 m_work = m.copy()
                 if mask_subtract_person and person_mask is not None:
-                    protect = person_mask.copy()
+                    sub_mask = subtract_person_mask if subtract_person_mask is not None else person_mask
+                    protect = sub_mask.copy()
                     Y, X = np.ogrid[:self.last_h, :self.last_w]
                     dist = np.hypot(X - ix, Y - iy)
                     protect[(dist > PERSON_MASK_PROTECT_RADIUS) | (m == 0)] = False
                     keep_ring = m & protect
-                    m_work[person_mask] = False
+                    m_work[sub_mask] = False
                     m_work |= keep_ring
                 area = int(m_work.sum())
                 if area < 50 or area > soft_area_cap:
@@ -331,8 +343,12 @@ class EdgeSamHoldSegmenter:
         # mask 100% 在 person mask 内 —— 保护圈保住的其实是身体/手本身，不是
         # hold，却以 mask 形式投票）。若取色区域 (mask & ~person) < 20%，
         # 判定为"非岩点"（被身体覆盖，无真实 hold 像素）。
+        # 注意：与 subtract 用同一个 mask（subtract_person_mask 优先）——
+        # 5.jpg L_foot 用未膨胀版 subtract 保留了脚下岩点，这里也必须用未膨胀版
+        # 否则膨胀版 person mask 又把岩点算进"person 内"→ 误判非岩点。
         if person_mask is not None:
-            _color_region = chosen & ~person_mask.astype(bool)
+            _region_check_mask = subtract_person_mask if subtract_person_mask is not None else person_mask
+            _color_region = chosen & ~_region_check_mask.astype(bool)
             _region_ratio = float(_color_region.sum()) / max(1.0, float(chosen.sum()))
             if _region_ratio < 0.20:
                 return {
@@ -348,7 +364,7 @@ class EdgeSamHoldSegmenter:
         # 用 mask 取 hold 颜色（person_mask 内的身体/衣服像素不进颜色统计）
         h, s, v = _robust_hsv_from_mask(
             self.last_image_bgr, chosen,
-            exclude_mask=person_mask,
+            exclude_mask=subtract_person_mask if subtract_person_mask is not None else person_mask,
         )
         # 颜色名判定优先级（避免 hue bin 把黑/白误判成"红"等）：
         #   1. V<60 AND S<40: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）

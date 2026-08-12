@@ -257,6 +257,7 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
             res = segmenter.segment_endpoint(
                 px, py, body_cx, body_cy,
                 person_mask=person_mask_d,
+                subtract_person_mask=person_mask,
             )
         except Exception as e:
             print(f"  ⚠️ EdgeSAM 失败 ({ep_name}): {e}")
