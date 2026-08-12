@@ -1,5 +1,5 @@
 """
-EdgeSAM 端点级 hold 分割模块。
+EdgeSAM 端点级 hold 分割模块（简化通用版）。
 
 核心思路：
   对每个 MediaPipe 姿态端点（L/R 手腕、L/R 脚尖）作为正点 prompt，
@@ -11,15 +11,14 @@ EdgeSAM 端点级 hold 分割模块。
   - 白色岩点 S<60 全被过滤掉
   EdgeSAM 是语义感知，绕过以上两个限制；输出是精确 mask 不是 bbox。
 
-颜色主色：
-  直接复用 route_color._robust_hold_hsv 思想 —— 在 mask 内采多点 5x5 patch 取色，
-  hue 圆形均值；色彩到中文色名复用 route_color.hue_to_color_name。
-  （导入 route_color 而不是复制，避免循环依赖 & 颜色标准同步。）
-
-负点（negative prompts）：
-  端点靠近身体时，单独的 +点会让 EdgeSAM 把"端点附近的身体+hold"一起 mask。
-  给 4 个 background 点（端点向身体侧偏移 30px 周围 + 远处墙色）可以让 SAM
-  更精确把"端点所在的物体"切出来。
+简化要点（去掉"针对特定图调优"的 hack）：
+  - 无保护圈 / 伪块检测：mask 减 person 后不保留端点周围圆盘
+  - 单 person mask：负点采样 / subtract 用同一个 mask（统一一个膨胀版）
+  - 无白路线模式：统一参数，不分 white_route_mode
+  - 无相对白路径 B：只用绝对白判定（S<35 AND V>140 过半）
+  - 无黑色 hold 检测：dead code，砍掉
+  - 无高饱和亮色域优先：主连通域只取"含端点优先 / 否则最大"
+  - 候选筛选单层：score / 面积 / 距端点近 = 一个一致标准
 """
 from __future__ import annotations
 
@@ -28,39 +27,63 @@ import numpy as np
 import torch
 
 import edgesam_stub  # noqa: F401 必须在 from edge_sam 之前注入 stub
-import route_color  # 色相 → 色名、皮肤过滤、墙色常量
+import route_color  # 色相 → 色名
 from edge_sam import sam_model_registry, SamPredictor  # noqa: E402
-from yolo_person_mask import sample_edge_points  # noqa: E402  人体 mask → 边缘外 negative prompt
 
 
-# 默认 checkpoint / 设备
 DEFAULT_CHECKPOINT = "weights/edge_sam.pth"
-DEVICE_CPU = torch.device("cpu")
 
-# mask_subtract_person=True 时，端点周围保护圈半径 (px)。
-# 扣掉 person_mask 时保留端点附近这个小圆盘，避免"端点本身在人体内"导致
-# mask 不含端点而全部被过滤。圆圈内 = 人体像素也留着（hold 就在手指/脚附近）。
-PERSON_MASK_PROTECT_RADIUS = 18
+# ============================================================
+# 候选 mask 筛选阈值
+# ============================================================
+SCORE_MIN = 0.4          # EdgeSAM 置信度门槛
+AREA_MIN = 100           # mask 最小像素（噪声剔除）
+AREA_MAX_RATIO = 0.30    # mask 最大占比（图面积比例，太大是墙不是 hold）
+DIST_MAX = 60            # mask 最近像素到端点的最大距离（hold 在端点附近）
 
-# 白色 / 灰白 hold 与彩色 hold 的饱和度分界。
-#   路径 A（绝对白）: mask 内 S<WHITE_SAT_MAX 像素 > 50% AND V>WHITE_BRIGHT_MIN → 判白
-#   路径 B（相对白）: mask S 中位 < WHITE_REL_SAT_MAX 且显著低于环境环（m_s/r_s<0.60）→ 判白
-#   网格采样：patch 内 S<WHITE_SAT_MAX 像素是"灰白"，不参与色相聚合
-#     满足的进入色相聚合（同时要求 V>=COLOR_VAL_MIN，过滤近黑像素）
-#   颜色判定兜底：S<WHITE_SAT_MAX → 判白（不要求 V>WHITE_BRIGHT_MIN —— 阴影/暖光下 V 可 120-140）
-# 四处使用同一个常量。
+# mask 减 person 后剩多少像素才算有效 hold（太少 = mask 主体被人吞了）
+COLOR_MIN_PIXELS = 50
+
+# ============================================================
+# box prompt 自适应（高分辨率图 box 太小切不到 hold）
+# ============================================================
+# box_half = max(BOX_HALF_DEFAULT, h // BOX_HALF_HEIGHT_DIV)，上限 BOX_HALF_MAX
+# 这是通用适配（不是单图调优）：保证 box 至少能容纳 hold 的尺度
+BOX_HALF_DEFAULT = 80
+BOX_HALF_MIN = 80
+BOX_HALF_MAX = 250
+BOX_HALF_HEIGHT_DIV = 20
+
+# ============================================================
+# 颜色判定阈值
+# ============================================================
+# 白色 hold 阈值
+# 路径 A（绝对白）：mask 内过半像素 S<WHITE_SAT_MAX AND V>WHITE_VAL_MIN → 白
+# 路径 B（相对白）：mask S 中位数显著低于环境环 → 白
+#   （暖光/阴影下白 hold S 常 35-75，纯阈值判不出来；
+#    但白 hold 仍是"墙上最不饱和的物体"——环境环是通用区分依据）
 WHITE_SAT_MAX = 35
-WHITE_REL_SAT_MAX = 75       # 路径 B 灰白上限
-WHITE_BRIGHT_MIN = 140       # 路径 A / 全 mask 均值兜底用
-COLOR_VAL_MIN = 40           # 网格采样：剔除近黑像素（和 route_color.detect_holds min_val=40 对齐）
+WHITE_VAL_MIN = 140
+WHITE_RATIO = 0.50
+WHITE_REL_SAT_MAX = 75          # 相对白：mask S 中位数上限
+WHITE_REL_RATIO = 0.60          # 相对白：mask/env S 比 < 此值 → 白
 
-# 黑色 hold（攀岩黑线 / 木板深色）阈值。
-#   V<DARK_V_MAX AND S<DARK_S_MAX → mask 像素是"暗"
-#   mask 面积 >= DARK_MIN_AREA → "黑"（攀岩黑 hold）；否则"未知(暗)"（手/鞋/手表碎片）
-# 11.jpg L_foot: hold ~2000px 黑 hold 应判"黑"；手套/护腕几百像素仍判"未知(暗)"
+# 网格采样：剔除近黑像素
+COLOR_VAL_MIN = 40
+GRID_N = 5
+
+# 颜色名兜底：暗（V<60 AND S<40）→ 未知(暗)；否则 hue_to_color_name
 DARK_V_MAX = 60
 DARK_S_MAX = 40
-DARK_MIN_AREA = 600
+
+# person mask 边缘外采样负点用
+PERSON_EDGE_NEG_N = 8
+PERSON_EDGE_MAX_RADIUS = 60
+
+# 负点（手工部分）参数
+NEG_BODY_OFFSET = 30      # 身体方向负点偏移 (px)
+NEG_RING_RADIUS = 35      # 均匀围绕负点半径
+NEG_RING_N = 5            # 均匀围绕负点数量
 
 
 class EdgeSamHoldSegmenter:
@@ -71,590 +94,312 @@ class EdgeSamHoldSegmenter:
         checkpoint_path: str = DEFAULT_CHECKPOINT,
         device: str | torch.device = "cpu",
     ):
-        """
-        checkpoint_path: .pth 路径
-        device: "cpu" / "cuda" / torch.device
-        """
         self.device = torch.device(device)
-        # EdgeSAM 注册的 key 是 "edge_sam" / "default"
         build_fn = sam_model_registry["edge_sam"]
         self.model = build_fn(checkpoint=checkpoint_path)
         self.model = self.model.to(self.device).eval()
         self.predictor = SamPredictor(self.model)
-        # image_size 缓存（被 SamPredictor.set_image / ResizeLongestSide 用）
-        self.img_size = self.model.image_encoder.img_size
 
     def set_image(self, image_bgr: np.ndarray) -> None:
-        """一次性算 image embedding。需要 RGB uint8 HxWx3。"""
-        # SamPredictor.set_image 接受 RGB 或 BGR，按 image_format 参数
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         self.predictor.set_image(image_rgb, image_format="RGB")
         self.last_h, self.last_w = image_bgr.shape[:2]
-        self.last_image_bgr = image_bgr  # 给后续 mask 颜色用
+        self.last_image_bgr = image_bgr
 
-    @staticmethod
-    def _make_negative_prompts(
-        px: float, py: float,
-        body_cx: float | None, body_cy: float | None,
-        n: int = 6, radius: float = 35.0,
-        white_route: bool = False,
-    ) -> np.ndarray:
-        """
-        在端点周围制造 negative points，把"端点附近的身体 + 背景墙"从 hold mask 剔除。
-
-        white_route=True 时加强"亮高光"方向上的负点 — 防止 EdgeSAM
-        把镁粉/天花板反光误当作 hold mask。
-
-        返回 shape (n, 2) 的 array，labels 由调用方填 0。
-        """
-        pts: list[tuple[float, float]] = []
-        if body_cx is not None and body_cy is not None:
-            ux, uy = body_cx - px, body_cy - py
-            norm = np.hypot(ux, uy) or 1.0
-            ux, uy = ux / norm, uy / norm
-            # 身体侧一点（端点往身体方向偏 30px）
-            inward_x = px + 30 * ux
-            inward_y = py + 30 * uy
-            pts.append((inward_x, inward_y))
-            # 4 个垂直端点方向的"墙/背景"
-            for theta in np.linspace(0, 2 * np.pi, 5, endpoint=False):
-                rx = px + radius * (np.cos(theta))
-                ry = py + radius * (np.sin(theta))
-                pts.append((rx, ry))
-            if white_route:
-                # 加大远端斜上 60-90px 的负点（白岩点常见 = 镁粉在端点正上方/侧上）
-                for theta_off in (np.pi / 4, 3 * np.pi / 4, -3 * np.pi / 4, -np.pi / 4):
-                    ux_off = ux * np.cos(theta_off) - uy * np.sin(theta_off)
-                    uy_off = ux * np.sin(theta_off) + uy * np.cos(theta_off)
-                    pts.append((px + 60 * ux_off, py + 60 * uy_off))
-        else:
-            for theta in np.linspace(0, 2 * np.pi, n, endpoint=False):
-                pts.append((px + radius * np.cos(theta),
-                            py + radius * np.sin(theta)))
-        return np.array(pts, dtype=np.float64)
-
+    # ------------------------------------------------------------
+    # 端点级 hold 分割
+    # ------------------------------------------------------------
     def segment_endpoint(
         self,
         px: float, py: float,
         body_cx: float | None = None, body_cy: float | None = None,
-        num_multimask_outputs: int = 4,
-        use_box_prompt: bool = True,
-        box_half: int = 80,
-        use_stability_score: bool = True,
-        white_route_mode: bool = False,
         person_mask: np.ndarray | None = None,
-        exclude_mask: np.ndarray | None = None,
-        mask_subtract_person: bool = True,
-        subtract_person_mask: np.ndarray | None = None,
+        num_multimask_outputs: int = 4,
     ) -> dict:
         """
         对 (px, py) 这个端点做 hold 分割。
 
-        white_route_mode: True 时加强负点密度 + 用更严的面积上限 + 降低 score 门槛。
-        用于白岩点这类容易跟墙颜色重叠的场景。
-
-        use_box_prompt (默认 True)：
-          - True: 用 box prompt（端点周围 box_half*2 px 正方形）+ 1 个 center positive
-            point + 远处 negative points。让 EdgeSAM 在 box 内切"端点附近的物体"，
-            **不依赖 detect_holds**（HSV 颜色阈值体系）。
-          - False: 退回纯 point prompt（1+16 个 negative）。
-
-        box_half: box 半边长 (px)。默认 80 → 160x160 box。
-          太大贪心合并，太小涵盖不到完整 hold。
-
-        num_multimask_outputs (默认 4)：
-          EdgeSAM 候选 mask 数。1/3/4，越多越能选到"完整 hold shape" (m[2])。
-
         person_mask: HxW bool，YOLO26 攀岩者人体 mask。若提供：
-          - 把 person_mask **边缘外**的点作为 negative prompt（让 EdgeSAM 把
-            "端点附近的身体"区分开）
-          - mask_subtract_person=True 时再额外把 SAM 输出 mask 与 person_mask 取差集
-            （剥除手腕/衣服等"嵌在身体里的碎片"）
+          - 边缘外的点作为 negative prompt（让 EdgeSAM 把端点附近的身体
+            和 hold 区分开）
+          - 选定的 mask 与 person_mask 取差集（剥除人体像素，避免把手/
+            脚/衣服等嵌在身体里的像素算到 hold 颜色上）
 
-        exclude_mask: HxW bool 可选 — 用于颜色统计时**排除**的像素范围。
-          通常应比 person_mask 大（戴 6-15 px 膨胀），把鞋/手套/护腕等"贴在身体
-          上但露出 person_mask 边界"的附件也算作身体。
-          9.jpg R_foot 攀岩鞋，鞋尖/鞋面常超出 person_mask 边界——不扩大 exclude
-          范围会把鞋的黄色错误地计入颜色统计。
-
-        mask_subtract_person (默认 False)：
-          - False（推荐）：只给 negative prompt，让 EdgeSAM 自己处理手表等碎片
-          - True: 把 hold mask 里的 person_mask 像素减掉（更激进，可能误伤）
-            → 适合 hold 与身体重叠程度已知很小的场景
-
-        subtract_person_mask: HxW bool 可选 — 用于 mask_subtract_person 的 mask。
-          默认 = person_mask（膨胀版，负点+subtract 用同一个）。
-          传未膨胀的原始 person mask 可以让"脚下方/手旁边的 hold"不被吞掉
-          （5.jpg L_foot: 膨胀6px 把脚下橙色岩点吞进 person → 取色区域=0
-          判非岩点；用未膨胀版则保留岩点）。
-
-        返回 dict:
-          mask: HxW bool（端点所在 hold 的 mask，原图坐标系）
-          mask_bool: HxW bool（同上，保留别名）
-          score: float（mask 置信度）
-          h, s, v: float（mask 内颜色统计）
-          color_name: str（中文色名）
-          area: int（mask 像素数）
-          endpoint: (px, py)
+        返回 dict: mask(255 uint8) / mask_bool / score / h,s,v /
+        color_name / area / endpoint
         """
         if not self.predictor.is_image_set:
             raise RuntimeError("先调用 set_image() 再 segment_endpoint()")
 
-        # box prompt: 端点周围 box_half px 的方框
-        box = None
-        if use_box_prompt:
-            # 高分辨率图 box 自适应放大：默认 box_half=80 在 3000+ px 高图上只
-            # 占 5%，hold 经常落在 box 边缘外，EdgeSAM 切不到 (13.jpg L_foot
-            # 蓝色 hold 在端点 100-150 px 外，box_half=80 切不到)。
-            # 按图高自适应：box_half = max(box_half, h/20)（3073 px → 150+）
-            # 但 person_mask_d 不够大时 box 超出 person 也无意义，上限 250。
-            eff_box_half = max(box_half, self.last_h // 20)
-            eff_box_half = min(eff_box_half, 250)
-            bx1 = max(0, int(round(px)) - eff_box_half)
-            by1 = max(0, int(round(py)) - eff_box_half)
-            bx2 = min(self.last_w - 1, int(round(px)) + eff_box_half)
-            by2 = min(self.last_h - 1, int(round(py)) + eff_box_half)
-            box = np.array([bx1, by1, bx2, by2], dtype=np.float64)
+        # box prompt：端点周围自适应 box
+        eff_box_half = max(BOX_HALF_MIN, self.last_h // BOX_HALF_HEIGHT_DIV)
+        eff_box_half = min(eff_box_half, BOX_HALF_MAX)
+        ix = max(0, min(int(round(px)), self.last_w - 1))
+        iy = max(0, min(int(round(py)), self.last_h - 1))
+        bx1 = max(0, ix - eff_box_half)
+        by1 = max(0, iy - eff_box_half)
+        bx2 = min(self.last_w - 1, ix + eff_box_half)
+        by2 = min(self.last_h - 1, iy + eff_box_half)
+        box = np.array([bx1, by1, bx2, by2], dtype=np.float64)
 
-        # 正点（端点）+ 负点（白路线模式更激进）
-        neg = self._make_negative_prompts(
-            px, py, body_cx, body_cy,
-            white_route=white_route_mode,
-        )
-
-        # YOLO26 提供的 person mask：边缘外的点作为更精确的 negative prompt
+        # 负点：1 个身体方向 + NEG_RING_N 个均匀围绕 + person mask 边缘外
+        neg = self._make_negative_prompts(px, py, body_cx, body_cy)
         if person_mask is not None and person_mask.any():
-            edge_pts = sample_edge_points(person_mask, n=12, max_radius=80)
+            edge_pts = _sample_person_edge_points(
+                person_mask, n=PERSON_EDGE_NEG_N, max_radius=PERSON_EDGE_MAX_RADIUS
+            )
             if len(edge_pts) > 0:
                 neg = np.vstack([neg, edge_pts])
 
-        point_coords = np.vstack([
-            [[px, py]],
-            neg,
-        ])
+        point_coords = np.vstack([[[px, py]], neg])
         point_labels = np.array([1] + [0] * len(neg), dtype=np.int64)
 
-        # EdgeSAM: box prompt（如果启用）+ 1 个 positive point + 多个 negative
-        # box + point 同时给是 SAM 支持的，与本 mask 选择策略兼容
+        # EdgeSAM predict
         masks, scores, _ = self.predictor.predict(
             box=box,
             point_coords=point_coords,
             point_labels=point_labels,
             num_multimask_outputs=num_multimask_outputs,
-            use_stability_score=use_stability_score,
+            use_stability_score=True,
         )
-
-        if masks.ndim == 2:  # num_multimask_outputs=1 时
+        if masks.ndim == 2:
             masks = masks[None, :, :]
             scores = np.array([float(scores)])
 
-        ix, iy = int(round(px)), int(round(py))
-        ix = max(0, min(ix, self.last_w - 1))
-        iy = max(0, min(iy, self.last_h - 1))
         img_area = self.last_w * self.last_h
+        area_cap = int(img_area * AREA_MAX_RATIO)
 
-        # 面积上限：白路线模式更激进（白 hold 一般更小）
-        area_cap = img_area * (0.20 if white_route_mode else 0.30)
-
-        # 过滤：必须包含端点、score ≥ 阈值、面积 < 阈值
-        score_min_main = 0.35 if white_route_mode else 0.4
+        # 候选筛选（单层）
         candidates = []
         for i, m in enumerate(masks):
-            # mask_subtract_person=True：把 mask 中 person_mask 像素剥除，
-            # 但保留端点周围 PERSON_MASK_PROTECT_RADIUS 的圆盘（否则端点被扣光，
-            # m_work[iy, ix] 恒 False → 全被过滤）。
-            # 核心价值：让"岩点 mask"与"人体"不重合 — 鞋/手/腿/衣服的像素被扣掉。
-            m_work = m.copy()
-            if mask_subtract_person and person_mask is not None:
-                # 负点用 person_mask（膨胀版，避开身体边缘），
-                # subtract 用 subtract_person_mask（可传未膨胀版，避免吞掉
-                # 手/脚旁的 hold —— 5.jpg L_foot 脚下岩点被膨胀6px吞掉）
-                sub_mask = subtract_person_mask if subtract_person_mask is not None else person_mask
-                # 端点保护圈：mask 内保留以 (ix,iy) 为圆心、protect_radius 内的 person 像素
-                protect = sub_mask.copy()
-                Y, X = np.ogrid[:self.last_h, :self.last_w]
-                dist = np.hypot(X - ix, Y - iy)
-                protect[(dist > PERSON_MASK_PROTECT_RADIUS) | (m == 0)] = False
-                # 保护圈内的人体像素先"摘出来"再减
-                keep_ring = m & protect
-                m_work[sub_mask] = False
-                m_work |= keep_ring
-            area = int(m_work.sum())
-            if area < 100:
+            area = int(m.sum())
+            if area < AREA_MIN or area > area_cap:
                 continue
-            if area > area_cap:
+            if float(scores[i]) < SCORE_MIN:
                 continue
-            # 必须包含端点 OR（端点本身在 person 内时）mask 距端点足够近。
-            # 脚的端点落在脚上（person 内），而 hold 在脚下方（person 外）——
-            # 此时 mask 不包含端点像素（5.jpg R_foot），但不能因此全过滤。
-            contains_ep = bool(m_work[iy, ix])
-            if not contains_ep and person_mask is not None and person_mask[iy, ix]:
-                # 端点被 person 覆盖：接受"距端点 < PROTECT_RADIUS*2 内非空"的 mask
-                ep_region = m_work[max(0, iy - 40):iy + 41, max(0, ix - 40):ix + 41]
-                if ep_region.sum() < 30:
-                    continue
-            elif not contains_ep:
+            ys_m, xs_m = np.where(m)
+            if len(xs_m) == 0:
                 continue
-            if float(scores[i]) < score_min_main:
+            dist_to_ep = float(np.min(np.hypot(xs_m - ix, ys_m - iy)))
+            if dist_to_ep > DIST_MAX:
                 continue
-            # 端点到 mask 的最近距离（mask 内像素到端点的欧氏距离最小值）——
-            # 排序时作为同分 tie-breaker：score 一致时优先选离端点近的 mask
-            ys_m, xs_m = np.where(m_work)
-            if len(xs_m) > 0:
-                dist_to_ep = float(np.min(np.hypot(xs_m - ix, ys_m - iy)))
-            else:
-                dist_to_ep = 1e9
-            candidates.append((float(scores[i]), dist_to_ep, area, m_work))
-
-        # 兜底：放低 score 门槛
-        if not candidates:
-            soft_score_min = 0.25 if white_route_mode else 0.3
-            soft_area_cap = img_area * 0.45
-            soft = []
-            for i, m in enumerate(masks):
-                m_work = m.copy()
-                if mask_subtract_person and person_mask is not None:
-                    sub_mask = subtract_person_mask if subtract_person_mask is not None else person_mask
-                    protect = sub_mask.copy()
-                    Y, X = np.ogrid[:self.last_h, :self.last_w]
-                    dist = np.hypot(X - ix, Y - iy)
-                    protect[(dist > PERSON_MASK_PROTECT_RADIUS) | (m == 0)] = False
-                    keep_ring = m & protect
-                    m_work[sub_mask] = False
-                    m_work |= keep_ring
-                area = int(m_work.sum())
-                if area < 50 or area > soft_area_cap:
-                    continue
-                contains_ep = bool(m_work[iy, ix])
-                if not contains_ep and person_mask is not None and person_mask[iy, ix]:
-                    ep_region = m_work[max(0, iy - 40):iy + 41, max(0, ix - 40):ix + 41]
-                    if ep_region.sum() < 30:
-                        continue
-                elif not contains_ep:
-                    continue
-                if float(scores[i]) < soft_score_min:
-                    continue
-                ys_m, xs_m = np.where(m_work)
-                if len(xs_m) > 0:
-                    dist_to_ep = float(np.min(np.hypot(xs_m - ix, ys_m - iy)))
-                else:
-                    dist_to_ep = 1e9
-                soft.append((float(scores[i]), dist_to_ep, area, m_work))
-            if soft:
-                candidates = soft
+            candidates.append((float(scores[i]), dist_to_ep, area, m))
 
         if not candidates:
-            # 真没有 hold 形状 → 返回低置信空 mask（让调用方判定"非岩点"）
-            return {
-                "mask": np.zeros((self.last_h, self.last_w), dtype=np.uint8),
-                "mask_bool": np.zeros((self.last_h, self.last_w), dtype=bool),
-                "score": float(np.max(scores)) if len(scores) else 0.0,
-                "h": 0.0, "s": 0.0, "v": 0.0,
-                "color_name": "未知",
-                "area": 0,
-                "endpoint": (px, py),
-            }
+            return self._empty_result(px, py, scores)
 
-        # 在合格候选里选"包含端点的最小 mask"——hold 一般小，墙+hold 混合的 mask 大
-        # 排序：(-score, -dist_to_endpoint, -area)
-        #   - score 最高优先（EdgeSAM 自己最稳的分割）
-        #   - 同分时距端点最近优先（避免 score 同分时选离端点远的"碰巧大 mask"）
-        #   - 再同分时 area 大优先（hold 比杂质像素多）
+        # 排序：score 最高 → 距端点最近 → 面积大
         candidates.sort(key=lambda c: (-c[0], c[1], -c[2]))
         chosen_score, _, _, chosen = candidates[0]
 
-        # 主连通域过滤（判断与可视化一致）：EdgeSAM 的 mask 可含多个不相连
-        # 区域（1.jpg R_hand: 含端点的紫色 hold 3485px + 远处黄色 hold 2136px
-        # + 碎片共 10 域）。攀岩者只接触一个 hold，取**包含端点的连通域**
-        # （端点代表正在接触的 hold）。若端点不在 mask 内，取最大连通域。
-        chosen = _keep_main_component(chosen, px, py, self.last_image_bgr)
-
-        # 取色区域占比检查：mask 主体不能在 person 内（9.jpg L_hand/R_hand 的
-        # mask 100% 在 person mask 内 —— 保护圈保住的其实是身体/手本身，不是
-        # hold，却以 mask 形式投票）。若取色区域 (mask & ~person) < 20%，
-        # 判定为"非岩点"（被身体覆盖，无真实 hold 像素）。
-        # 注意：与 subtract 用同一个 mask（subtract_person_mask 优先）——
-        # 5.jpg L_foot 用未膨胀版 subtract 保留了脚下岩点，这里也必须用未膨胀版
-        # 否则膨胀版 person mask 又把岩点算进"person 内"→ 误判非岩点。
+        # 减 person（统一用同一个 mask）
         if person_mask is not None:
-            _region_check_mask = subtract_person_mask if subtract_person_mask is not None else person_mask
-            _color_region = chosen & ~_region_check_mask.astype(bool)
-            _region_ratio = float(_color_region.sum()) / max(1.0, float(chosen.sum()))
-            if _region_ratio < 0.20:
-                return {
-                    "mask": chosen.astype(np.uint8) * 255,
-                    "mask_bool": chosen.astype(bool),
-                    "score": chosen_score,
-                    "h": 0.0, "s": 0.0, "v": 0.0,
-                    "color_name": "非岩点",
-                    "area": int(chosen.sum()),
-                    "endpoint": (px, py),
-                }
+            chosen = chosen & ~person_mask.astype(bool)
 
-        # 用 mask 取 hold 颜色（person_mask 内的身体/衣服像素不进颜色统计）
-        h, s, v = _robust_hsv_from_mask(
-            self.last_image_bgr, chosen,
-            exclude_mask=subtract_person_mask if subtract_person_mask is not None else person_mask,
-        )
-        # 颜色名判定优先级（避免 hue bin 把黑/白误判成"红"等）：
-        #   1. V<DARK_V_MAX AND S<DARK_S_MAX: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）
-        #      但 mask 面积足够大（DARK_MIN_AREA）→ 黑色 hold → "黑"（11.jpg L_foot）
-        #   2. S<WHITE_SAT_MAX: 低饱和（白/灰 hold）→ "白"。不要求 V>WHITE_BRIGHT_MIN —— 白色 hold
-        #      在阴影/暖光下 V 可能只有 120-140（9.jpg R_foot: 相对白判定
-        #      返回 (0,0,136)，V=136<140 会落入 hue_to_color_name(0,0) 判"红"）
-        #   3. 否则: hue_to_color_name（深蓝 hold：V<60 但 S>=60 也走这里）
-        area_chosen = int(chosen.sum())
+        # 减 person 后像素太少 = mask 主体在人身上
+        if chosen.sum() < COLOR_MIN_PIXELS:
+            return self._empty_result(px, py, scores, score=chosen_score)
+
+        # 主连通域
+        chosen = _keep_main_component(chosen, ix, iy)
+
+        # 颜色统计
+        h, s, v = _sample_color(self.last_image_bgr, chosen)
+
+        # 颜色名
         if v < DARK_V_MAX and s < DARK_S_MAX:
-            # 暗像素：mask 够大就是黑色 hold（11.jpg L_foot 黑 hold ~2000px），
-            # 否则是手/鞋/手表碎片
-            color_name = "黑" if area_chosen >= DARK_MIN_AREA else "未知(暗)"
+            color_name = "未知(暗)"
         elif s < WHITE_SAT_MAX:
             color_name = "白"
         else:
             color_name = route_color.hue_to_color_name(h, s)
 
         return {
-            "mask": chosen.astype(np.uint8) * 255,  # uint8 for 可视化
+            "mask": chosen.astype(np.uint8) * 255,
             "mask_bool": chosen.astype(bool),
-            "score": chosen_score,
+            "score": float(chosen_score),
             "h": float(h), "s": float(s), "v": float(v),
             "color_name": color_name,
             "area": int(chosen.sum()),
             "endpoint": (px, py),
         }
 
+    # ------------------------------------------------------------
+    # 内部工具
+    # ------------------------------------------------------------
+    @staticmethod
+    def _make_negative_prompts(
+        px: float, py: float,
+        body_cx: float | None, body_cy: float | None,
+    ) -> np.ndarray:
+        """
+        负点：1 个身体方向 + 5 个均匀围绕端点。
+
+        身体方向：端点往身体中心偏 NEG_BODY_OFFSET px（让 SAM 把
+        "端点附近的身体"剔除）
+        均匀围绕：以端点为圆心 NEG_RING_RADIUS px 的 NEG_RING_N 个点
+        """
+        pts: list[tuple[float, float]] = []
+        if body_cx is not None and body_cy is not None:
+            ux, uy = body_cx - px, body_cy - py
+            norm = np.hypot(ux, uy) or 1.0
+            ux, uy = ux / norm, uy / norm
+            pts.append((px + NEG_BODY_OFFSET * ux, py + NEG_BODY_OFFSET * uy))
+        for theta in np.linspace(0, 2 * np.pi, NEG_RING_N, endpoint=False):
+            pts.append((px + NEG_RING_RADIUS * np.cos(theta),
+                        py + NEG_RING_RADIUS * np.sin(theta)))
+        return np.array(pts, dtype=np.float64)
+
+    def _empty_result(self, px, py, scores, score=None):
+        return {
+            "mask": np.zeros((self.last_h, self.last_w), dtype=np.uint8),
+            "mask_bool": np.zeros((self.last_h, self.last_w), dtype=bool),
+            "score": float(score) if score is not None else (
+                float(np.max(scores)) if len(scores) else 0.0
+            ),
+            "h": 0.0, "s": 0.0, "v": 0.0,
+            "color_name": "非岩点",
+            "area": 0,
+            "endpoint": (px, py),
+        }
+
 
 # ============================================================
-# mask → 主连通域过滤（判断与可视化一致：只保留含端点的连通域）
+# 模块级工具函数（纯函数，方便测试和复用）
 # ============================================================
-def _keep_main_component(mask: np.ndarray, px: float, py: float,
-                         image_bgr: np.ndarray | None = None,
+def _keep_main_component(mask: np.ndarray, ix: int, iy: int,
                          min_area: int = 40) -> np.ndarray:
     """
-    EdgeSAM 的 mask 可含多个不相连区域（1.jpg R_hand：含端点紫色 hold 3485px
-    + 远处黄色 hold 2136px + 碎片共 10 域）。攀岩者只接触一个 hold，
-    只保留**包含端点的连通域**（端点代表正在接触的 hold）。
-
-    若端点不在 mask 内（被 person 扣掉，5.jpg R_foot 脚在 person 内而
-    hold 在脚下 person 外），取"距端点最近 + 高饱和亮色"的连通域 ——
-    脚/鞋在端点附近但暗（S 低），真正的 hold 距端点略远但高饱和亮色。
-    不能取"面积最大"：5.jpg 候选3 的最大连通域 (658px) 是左侧的绳/衣物。
+    主连通域：含端点像素的连通域（攀岩者只接触一个 hold，端点代表
+    正在接触的 hold）；端点不在 mask 内 → 取最大连通域。
     """
     if mask.sum() < 50:
         return mask
-    n_lbl, labels, stats, cent = cv2.connectedComponentsWithStats(
+    n_lbl, labels, stats, _ = cv2.connectedComponentsWithStats(
         mask.astype(np.uint8), 8)
     if n_lbl <= 2:
         return mask
 
-    iy, ix = int(round(py)), int(round(px))
     iy = max(0, min(iy, mask.shape[0] - 1))
     ix = max(0, min(ix, mask.shape[1] - 1))
     ep_label = labels[iy, ix]
-
     if ep_label > 0 and stats[ep_label, cv2.CC_STAT_AREA] >= min_area:
-        # 伪块检测：端点域是 18px 保护圈形成的 person 圆盘（面积 ≈ π*18² ≈ 1018px）
-        # 且 mask 内存在"面积≥3 倍 + 高饱和亮色 + 距端点≤90px"的其他域 → 端点域是
-        # 伪块，改用该域（13.jpg L_hand/L_foot：端点域 810/876px 伪块 + 蓝色 hold
-        # 11713/12203px）。
-        # 不加饱和度条件：L_foot 伪块是攀岩鞋（S=153 高饱和），L_hand 是皮肤（S=76），
-        # 只有 V 上限挡白色高光。距离限制挡 4.jpg R_foot 远处的蓝色杂物域。
-        ep_a = stats[ep_label, cv2.CC_STAT_AREA]
-        protect_disk_area = 3.14159 * PERSON_MASK_PROTECT_RADIUS ** 2  # ≈ 1018
-        if ep_a <= protect_disk_area * 1.5 and image_bgr is not None:
-            ys_ep, xs_ep = np.where(labels == ep_label)
-            hsv_now = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-            ep_v = float(np.median(hsv_now[ys_ep, xs_ep, 2]))
-            # 端点域不能是白色高光（V 很高才是纯白）
-            if ep_v < 235:
-                # 找面积 ≥ ep_a*3 且高饱和亮色的域（优先距离端点近的）
-                best_j, best_d = 0, 1e18
-                for j in range(1, n_lbl):
-                    if j == ep_label:
-                        continue
-                    a = stats[j, cv2.CC_STAT_AREA]
-                    if a < ep_a * 3 or a < min_area:
-                        continue
-                    cx, cy = cent[j]
-                    d = float(np.hypot(cx - ix, cy - iy))
-                    # 新域必须离端点足够近（hold 就在手/脚旁），避免选到远处杂物
-                    if d > PERSON_MASK_PROTECT_RADIUS * 5:  # 90px
-                        continue
-                    ys_c, xs_c = np.where(labels == j)
-                    s_med = float(np.median(hsv_now[ys_c, xs_c, 1]))
-                    v_med = float(np.median(hsv_now[ys_c, xs_c, 2]))
-                    if s_med > 60 and v_med > 100 and d < best_d:
-                        best_d, best_j = d, j
-                if best_j > 0:
-                    return (labels == best_j)
         return (labels == ep_label)
 
-    # 端点不在 mask 内：取"距端点最近 + 高饱和亮色"的连通域。
-    # 5.jpg R_foot 候选3 有 3 个橙色域：
-    #   域5 (距9px,  S=70)  = 脚/鞋本身（低饱和暗色，不是 hold）
-    #   域7 (距45px, S=248) = 脚下岩点（高饱和亮色，正确）✓
-    #   域3 (距127px,S=252) = 左侧绳/衣物（高饱和但更远）
-    # 优先"高饱和 (S>100) 亮色 (V>80)"的连通域，按距离排序选最近者；
-    # 若都低饱和（白色/暗色 hold），退化为按距离选。
-    if image_bgr is not None:
-        hsv_now = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-    else:
-        hsv_now = None
-    best_j, best_d = 0, 1e18
-    fallback_j, fallback_d = 0, 1e18
-    for j in range(1, n_lbl):
-        a = stats[j, cv2.CC_STAT_AREA]
-        if a < min_area:
-            continue
-        cx, cy = cent[j]
-        d = float(np.hypot(cx - ix, cy - iy))
-        # 连通域平均饱和/亮度
-        if hsv_now is not None:
-            ys_c, xs_c = np.where(labels == j)
-            s_med = float(np.median(hsv_now[ys_c, xs_c, 1]))
-            v_med = float(np.median(hsv_now[ys_c, xs_c, 2]))
-        else:
-            s_med, v_med = 0.0, 0.0
-        if s_med > 100 and v_med > 80:
-            if d < best_d:
-                best_d, best_j = d, j
-        if d < fallback_d:
-            fallback_d, fallback_j = d, j
-    if best_j > 0:
-        return (labels == best_j)
-    if fallback_j > 0:
-        return (labels == fallback_j)
-
-    # 兜底：最大连通域
+    # 端点不在 mask：取最大连通域
     best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     return (labels == best)
 
 
-# ============================================================
-# mask → HSV 颜色统计（在 hold mask 内采多点 patch 圆形均值，借鉴 route_color）
-# ============================================================
-def _robust_hsv_from_mask(image_bgr: np.ndarray, mask: np.ndarray,
-                          exclude_mask: np.ndarray | None = None) -> tuple[float, float, float]:
+def _sample_person_edge_points(person_mask: np.ndarray,
+                               n: int = 8, max_radius: int = 60) -> np.ndarray:
     """
-    image_bgr: HxWx3 uint8
-    mask: HxW bool（hold 区域，EdgeSAM 切出的"端点附近"区域）
-    exclude_mask: HxW bool 可选 — exclude_mask 内像素不进颜色统计
+    在 person mask 边缘外 n 个 negative prompt points（让 SAM 更清楚
+    "端点附近的攀岩者身体"边界）。
 
-    返回 (h, s, v)：hold 的代表色
-
-    策略：
-      - 在 mask 内只统计"不在 exclude_mask 内"的像素：
-        当 provide exclude_mask=person_mask，hand+hold mask 内的人体皮肤/衣
-        服像素被剔除 → 颜色统计只反映 hold 像素的真实颜色。
-      - 如果 mask 像素太少 (<20) → 返回 (0,0,0)
-      - 在 mask 的 bbox 中均匀采 5x5 网格点，每点 5x5 patch：
-          - 不满足 S>=WHITE_SAT_MAX/V>=COLOR_VAL_MIN 的"灰白"像素参与"白岩点"判定
-          - 满足的进入色相聚合
-      - 如果"灰白像素"占 mask 大部分 (>50%) 且平均 V 高 → 返回 (0, 0, mean_v)（标志"白"）
-      - 否则用色相圆形均值聚合
+    简化版（与之前 sample_edge_points 类似但参数收紧）：固定 n=8，
+    max_radius=60（之前是 12 + 80，太多了没必要）。
     """
-    # 用 mask & ~exclude_mask 限定参与颜色统计的像素（剔出 person_mask 内的身体）
-    if exclude_mask is not None:
-        mask_for_color = mask & ~exclude_mask.astype(bool)
+    if person_mask.sum() < 50:
+        return np.zeros((0, 2), dtype=np.float64)
+    pm_u8 = (person_mask.astype(np.uint8)) * 255
+    contours, _ = cv2.findContours(pm_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return np.zeros((0, 2), dtype=np.float64)
+    all_pts = np.vstack(contours).reshape(-1, 2)
+    if len(all_pts) < n:
+        idx = np.arange(len(all_pts))
     else:
-        mask_for_color = mask
+        idx = np.linspace(0, len(all_pts) - 1, n).astype(int)
+    samples = all_pts[idx].astype(np.float64)
 
-    ys, xs = np.where(mask_for_color)
+    # 向外推（粗略 2D 法向）
+    ys, xs = np.where(person_mask)
+    cx, cy = float(xs.mean()), float(ys.mean())
+    ux = samples[:, 0] - cx
+    uy = samples[:, 1] - cy
+    norm = np.hypot(ux, uy)
+    norm[norm < 1] = 1.0
+    ux, uy = ux / norm, uy / norm
+    return np.column_stack([
+        samples[:, 0] + max_radius * 0.4 * ux,
+        samples[:, 1] + max_radius * 0.4 * uy,
+    ])
+
+
+def _sample_color(image_bgr: np.ndarray, mask: np.ndarray) -> tuple[float, float, float]:
+    """
+    mask 内 HSV 取色：
+
+      1) 绝对白判定：过半像素 S<WHITE_SAT_MAX AND V>WHITE_VAL_MIN → 白
+         （阴影/暖光下白 hold V 可能 120-140，由 WHITE_VAL_MIN=140 卡掉；
+         这种情况由 hue_to_color_name 兜底判"白"通过 S<35）
+
+      2) 否则：mask bbox 内 GRID_N×GRID_N 网格采样，每点 5×5 patch 中
+         位色相聚合（圆形 hue 均值），剔除低饱/近黑像素。
+
+    返回 (h, s, v)。
+    """
+    ys, xs = np.where(mask)
     if len(xs) < 20:
-        # 退回到原始 mask（剔除后没足够像素）
-        ys, xs = np.where(mask)
-        if len(xs) < 20:
-            return (0.0, 0.0, 0.0)
-        mask_for_color = mask
-
-    h_img, w_img = mask.shape
+        return (0.0, 0.0, 0.0)
 
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-    mask_pixels = hsv[ys, xs]  # (N, 3)
-    mask_pixels_v = mask_pixels[:, 2]
+    mask_pixels = hsv[ys, xs]
 
-    # ------ 白岩点判定 ------
-    # 路径 A：绝对白（mask 内过半像素 S<WHITE_SAT_MAX 且 V>WHITE_BRIGHT_MIN）——纯白 hold 直判
-    white_mask = (mask_pixels[:, 1] < WHITE_SAT_MAX) & (mask_pixels[:, 2] > WHITE_BRIGHT_MIN)
-    white_ratio = float(white_mask.sum()) / len(mask_pixels)
-    if white_ratio > 0.50:
-        mean_v = float(np.mean(mask_pixels_v[white_mask])) if white_mask.sum() else 200.0
+    # 绝对白判定
+    white_mask = (mask_pixels[:, 1] < WHITE_SAT_MAX) & (mask_pixels[:, 2] > WHITE_VAL_MIN)
+    if white_mask.sum() / len(mask_pixels) > WHITE_RATIO:
+        mean_v = float(np.mean(mask_pixels[white_mask, 2]))
         return (0.0, 0.0, mean_v)
 
-    # 路径 B：相对白 —— 白色 hold 是墙上"最不饱和"的物体。
-    # 暖光/阴影下白色 hold 的 S 常在 35-75（不是绝对 <35），且 hold 只占
-    # mask 一部分（其余是墙），所以"mask 内绝对占比"判不出来。改用相对判据：
-    #   mask 饱和度中位数 << 环境环（mask 外扩 20px）→ 白色 hold
-    #   且 mask 绝对 S 中位数 < 75（彩色 hold 即使相对低饱和也不低于此）
-    #   且 mask 亮度不显著暗于环境（白 hold 是亮物体）
-    # 实测 9.jpg R_foot (S_ratio=0.47, maskS=62, V_ratio=0.98) 判白；
-    # 8.jpg 蓝 hold (S_ratio=0.50 但 maskS=114) 被绝对 S 挡掉，不会误判。
-    if exclude_mask is not None:
-        kernel = np.ones((20, 20), np.uint8)
-        dil = cv2.dilate(mask.astype(np.uint8), kernel).astype(bool)
-        ring = dil & ~mask & ~exclude_mask.astype(bool)
-        if ring.sum() > 50:
-            ring_pix = hsv[ring]
-            r_s = float(np.median(ring_pix[:, 1]))
-            r_v = float(np.median(ring_pix[:, 2]))
-            m_s = float(np.median(mask_pixels[:, 1]))
-            m_v = float(np.median(mask_pixels[:, 2]))
-            if (r_s > 20 and m_s / r_s < 0.60
-                    and m_s < WHITE_REL_SAT_MAX and m_v >= r_v * 0.70):
-                mean_v = float(np.mean(mask_pixels_v))
-                return (0.0, 0.0, mean_v)
+    # 相对白：mask 内 S 中位数显著低于"环境环 S 中位数" → 白色 hold
+    # （通用：白 hold 在暖光/阴影下 S 可能 35-75，但仍比墙色饱和度低）
+    h_img_full, w_img_full = hsv.shape[:2]
+    kernel = np.ones((20, 20), np.uint8)
+    dil = cv2.dilate(mask.astype(np.uint8), kernel).astype(bool)
+    ring = dil & ~mask
+    if ring.sum() > 50:
+        ring_pix = hsv[ring]
+        r_s = float(np.median(ring_pix[:, 1]))
+        m_s = float(np.median(mask_pixels[:, 1]))
+        if r_s > 20 and m_s < WHITE_REL_SAT_MAX and m_s / r_s < WHITE_REL_RATIO:
+            return (0.0, 0.0, float(np.mean(mask_pixels[:, 2])))
 
-    # ------ bbox 5x5 网格采样的色相聚合 ------
+    # 网格采样（5x5 = 25 点 × 5x5 patch）
     bx0, bx1 = xs.min(), xs.max()
     by0, by1 = ys.min(), ys.max()
     bw = max(1, bx1 - bx0)
     bh = max(1, by1 - by0)
-
-    grid_n = 5
-    pts: list[tuple[int, int]] = []
-    for gy in range(grid_n):
-        for gx in range(grid_n):
-            cx_g = bx0 + (gx + 0.5) * bw / grid_n
-            cy_g = by0 + (gy + 0.5) * bh / grid_n
-            ix = int(round(cx_g))
-            iy = int(round(cy_g))
-            if 2 <= ix < w_img - 2 and 2 <= iy < h_img - 2:
-                # patch 中心 5x5 检查：用 mask_for_color (排除身体) + mask
-                # patch 中"hold 占比 >40%" → 这点可能采到 hold 颜色
-                patch_hold = mask_for_color[max(0, iy - 2):iy + 3, max(0, ix - 2):ix + 3]
-                patch_total = mask[max(0, iy - 2):iy + 3, max(0, ix - 2):ix + 3]
-                if patch_total.size == 0:
-                    continue
-                if patch_hold.sum() / patch_total.size > 0.20:
-                    pts.append((ix, iy))
-    if not pts:
-        return (0.0, 0.0, 0.0)
-
+    h_img, w_img = mask.shape
     hues, sats, vals = [], [], []
-    for ix, iy in pts:
-        # patch 是以 (ix, iy) 中心 5x5 — 直接采样 HSV，不考虑 mask_for_color 在 patch 内
-        patch = hsv[iy - 2:iy + 3, ix - 2:ix + 3].reshape(-1, 3)
-        keep = (patch[:, 1] >= WHITE_SAT_MAX) & (patch[:, 2] >= COLOR_VAL_MIN)
-        if keep.sum() < 3:
-            continue
-        pix = patch[keep]
-        hr = pix[:, 0].astype(np.float64) * (2 * np.pi / 180.0)
-        h_mean = float(np.degrees(np.arctan2(
-            np.mean(np.sin(hr)), np.mean(np.cos(hr))
-        )) / 2.0) % 180.0
-        hues.append(h_mean)
-        sats.append(float(np.median(pix[:, 1])))
-        vals.append(float(np.median(pix[:, 2])))
+    for gy in range(GRID_N):
+        for gx in range(GRID_N):
+            cx_g = bx0 + (gx + 0.5) * bw / GRID_N
+            cy_g = by0 + (gy + 0.5) * bh / GRID_N
+            ix_p = int(round(cx_g))
+            iy_p = int(round(cy_g))
+            if 2 <= ix_p < w_img - 2 and 2 <= iy_p < h_img - 2:
+                patch = hsv[iy_p - 2:iy_p + 3, ix_p - 2:ix_p + 3].reshape(-1, 3)
+                keep = (patch[:, 1] >= WHITE_SAT_MAX) & (patch[:, 2] >= COLOR_VAL_MIN)
+                if keep.sum() < 3:
+                    continue
+                pix = patch[keep]
+                hr = pix[:, 0].astype(np.float64) * (2 * np.pi / 180.0)
+                h_mean = float(np.degrees(np.arctan2(
+                    np.mean(np.sin(hr)), np.mean(np.cos(hr))
+                )) / 2.0) % 180.0
+                hues.append(h_mean)
+                sats.append(float(np.median(pix[:, 1])))
+                vals.append(float(np.median(pix[:, 2])))
+
     if not hues:
-        # 没采到任何高饱和像素 — mask 内是浅色，用全部像素均值
-        mean_v = float(np.mean(mask_pixels_v))
-        mean_s = float(np.mean(mask_pixels[:, 1]))
-        if mean_s < WHITE_SAT_MAX and mean_v > WHITE_BRIGHT_MIN:
-            return (0.0, 0.0, mean_v)
-        return (0.0, 0.0, mean_v)
+        # 兜底：mask 全部像素中位
+        return (0.0, float(np.median(mask_pixels[:, 1])),
+                float(np.median(mask_pixels[:, 2])))
+
     hr2 = np.array(hues) * (2 * np.pi / 180.0)
     h_final = float(np.degrees(np.arctan2(
         np.mean(np.sin(hr2)), np.mean(np.cos(hr2))
     )) / 2.0) % 180.0
     return (h_final, float(np.median(sats)), float(np.median(vals)))
-

@@ -1,8 +1,8 @@
 # 攀岩线路颜色识别 — 完整流程说明
 
 > 项目根目录：`D:\Project\mediapipe`
-> 当前时间：2026-08-12
-> 维护版本：v1 (route_color.py / test_mp.py) + v2 (edgesam_holds.py / test_edge_sam.py)
+> 当前时间：2026-08-13
+> 维护版本：v1 (route_color.py / test_mp.py) + v2 (edgesam_holds.py / test_edge_sam.py, 2026-08-13 简化版)
 
 ---
 
@@ -76,31 +76,30 @@ result_route_*.jpg
 
 ---
 
-## v2 pipeline（`test_edge_sam.py`，新增）
+## v2 pipeline（`test_edge_sam.py`，2026-08-13 简化版）
 
 ```
 img/N.jpg
   │
-  ├─ [1] YOLO26m → person_mask（算法=可视化用同一个）
+  ├─ [1] YOLO26m → person_mask（算法=可视化用同一个，单 mask）
   ├─ [2] MediaPipe Pose (原图+翻转) → 4 个端点 (15,16,31,32)
   └─ [3] EdgeSAM encoder (一次性 image embedding)
         ↓
   对每个端点 (4 次)：
     ┌─────────────────────────────────────────────────────────┐
-    │ segment_endpoint(px, py, person_mask, …)                │
-    │   input: box (端点±80px) + 1 正点 + 18 负点             │
-    │   EdgeSAM → 4 mask 候选 → 必须含端点 + 按 (-score,        │
-    │     +dist, -area) 排序取最佳（score 同分时距端点近优先） │
-    │   mask -= person_mask (18px 保护圈内保留)                │
-    │   _keep_main_component  (只留含端点的连通域)             │
-    │   _keep_endpoint_cluster  (k-means, 9.jpg 紫+白 hold)    │
-    │   取色区域 <20% → "非岩点" (手/身体片段)                 │
-    │   _robust_hsv_from_mask                                  │
-    │     路径 A: 过半像素 S<35 AND V>140  → 白                │
-    │     路径 B: mask S 中位 < 75 AND 远低于环境环 → 白       │
+    │ segment_endpoint(px, py, body_cx, body_cy, person_mask) │
+    │   input: box (端点±80px, 高分辨率自适应放大)              │
+    │          + 1 正点 + 6 手工负点 + 8 person 边缘负点        │
+    │   EdgeSAM → 4 mask 候选 → 筛选 score/面积/距端点近       │
+    │   排序 (-score, +dist, -area) 选最佳                     │
+    │   mask -= person_mask (单一 mask，无保护圈)              │
+    │   mask 减 person 后像素<50 → "非岩点"                    │
+    │   _keep_main_component (含端点域优先, 否则最大)          │
+    │   _sample_color                                         │
+    │     路径 A: 过半像素 S<35 AND V>140 → 白                  │
+    │     路径 B: mask S 中位 < 75 AND m_s/r_s<0.60 → 白       │
     │     网格 5×5 patch 圆形 hue 均值 → (h, s, v)            │
-    │   颜色名：暗/白/else → hue_to_color_name                  │
-    │     HUE_BINS: (118,150)=紫, (150,170)=粉红               │
+    │   颜色名：暗 / 白 / else → hue_to_color_name             │
     └─────────────────────────────────────────────────────────┘
         ↓
   4 端点投票 → 多数票 = 线路色 + 置信度
@@ -110,52 +109,79 @@ img/N.jpg
 result_edgesam_N.jpg
 ```
 
-### v2 端点处理内循环细节
+### v2 简化要点（2026-08-13）
+
+对比之前累积的 hack 版本（7077d45），简化砍掉了：
+- **保护圈机制**（PERSON_MASK_PROTECT_RADIUS=18 圆盘）→ 直接减 person，mask 减完 < 50 px → 非岩点
+- **伪块检测**（专门针对 13.jpg 圆盘的 hack）→ 不需要（没圆盘就没伪块）
+- **white_route_mode 白路线分支**（额外负点 + 收紧面积 + 降 score）→ 统一一套参数
+- **双 person mask**（膨胀版给负点、未膨胀版给 subtract）→ 统一一个 mask
+- **取色区域 <20% 判非岩点**（9.jpg 调优）→ 改为减 person 后像素 < 50 简单判断
+- **候选双层筛选**（正常 + soft 兜底）→ 单层
+- **主连通域高饱和亮色优先**（5.jpg 调优）→ 含端点优先，否则最大
+- **DARK 黑色 hold 检测**（11.jpg dead code）→ 砍掉
+
+保留的通用逻辑：
+- **box prompt 自适应**（高分辨率图 box 按 h/20 放大，13.jpg 案例）→ 通用，非单图 hack
+- **相对白路径 B**（环境环饱和度比，白 hold 在暖光/阴影下的通用处理）→ 9.jpg 不是单图特例
+- **网格采样 5×5**（取色时避开边缘/墙像素）→ route_color 也用的通用方案
+
+### v2 端点处理内循环细节（简化版）
 
 **输入准备**（一次性）：
-- `person_mask` = YOLO26m 攀岩者人体 mask（算法=可视化用同一个）
-- `person_mask_d6` = `dilate_mask(person_mask, 6)`，**仅**供负点采样用
+- `person_mask` = YOLO26m 攀岩者人体 mask（**单一版本**，算法=可视化共用）
 - 4 个端点 (px, py) = 左手腕 15 / 右手腕 16 / 左脚尖 31 / 右脚尖 32
 
-**EdgeSAM prompt**（prompt 模式，非自动模式）：
-- box = 端点周围 `box_half*2 = 160×160 px` 方框（中心固定 = 端点，**不依赖 detect_holds**）
-  - 自动模式（`SamAutomaticMaskGenerator`）会一次切整张图所有物体 + 后续匹配端点，攀岩图同色 hold/墙聚类混乱；prompt 模式 + box 把搜索范围压到 160×160 内，判别力更强
-  - box 同时给 EdgeSAM **hold 的尺度提示**——纯正点会倾向切最小连通域（1-2px），hold 大就漏
+**EdgeSAM prompt**：
+- box = 端点周围 box_half*2 px 方框
+  - box_half = max(80, h // 20)，上限 250
 - positive point = 端点
-- negative points = 6 手工远处 + 12 person 边缘外点（用膨胀版 person_mask_d6）
+- negative points = 6 手工（1 身体方向 + 5 均匀围绕）+ 8 person mask 边缘外点
 - `num_multimask_outputs=4`，4 个候选 mask
 
-**候选筛选**：
-- 面积 `100 < area < img_area * 0.3`（上限 30% 图，剔除大块）
+**候选筛选（单层）**：
+- 面积 `100 < area < img_area * 0.3`
 - `score >= 0.4`
-- **必须包含端点**（距离考量隐式：不含端点的候选直接剔除；端点本身在 person 内时放宽为"端点 40px 邻域非空"——5.jpg R_foot）
+- mask 距端点 ≤ DIST_MAX(60)px
 - 排序：`(-score, +dist_to_endpoint, -area)` 选 best
-  - score 最高优先（EdgeSAM 最稳的分割）
-  - 同分时距端点最近优先（避免选离端点远的"碰巧大 mask"）—— dist 是 mask 内像素到端点的欧氏距离最小值
-  - 再同分时 area 大优先（hold 比杂质像素多）
-- 兜底：端点不在任何候选里 → 主连通域过滤取"距端点最近 + 高饱和亮色域 (S>100, V>80)"（5.jpg R_foot 远绳候选剔除）
 
-**mask 后处理**（关键，**判断与可视化共用**）：
-- `mask -= person_mask`（用**未膨胀**版，避免吞脚旁 hold —— 5.jpg L_foot 脚下橙点）
-- 端点周围 18px 保护圈（hold 在手指/脚附近，扣掉会全空）
-- `_keep_main_component`：含端点的连通域；缺失时取"最近高饱和亮色域 (S>100, V>80)"
-- `_keep_endpoint_cluster`：多色 mask（9.jpg R_hand 紫+白）做 k-means
-- 取色区域 `(mask & ~person) / mask < 20%` → "非岩点"（9.jpg 手 100% 在 person 内）
+**mask 后处理**：
+- `mask -= person_mask`（单一 mask，无保护圈）
+- mask 减 person 后像素 < COLOR_MIN_PIXELS(50) → "非岩点"
+- `_keep_main_component`：含端点的连通域；缺失时取最大连通域
 
-**颜色统计**（`_robust_hsv_from_mask`）：
-- 路径 A 绝对白：mask 内 S<WHITE_SAT_MAX(35) AND V>WHITE_BRIGHT_MIN(140) 像素 > 50%
-- 路径 B 相对白：mask S 中位 < WHITE_REL_SAT_MAX(75) AND `m_s/r_s < 0.60`（9.jpg R_foot S=62）
+**颜色统计**（`_sample_color`）：
+- 路径 A 绝对白：mask 内 S<WHITE_SAT_MAX(35) AND V>WHITE_VAL_MIN(140) 像素 > 50%
+- 路径 B 相对白：mask S 中位 < WHITE_REL_SAT_MAX(75) AND m_s/r_s<WHITE_REL_RATIO(0.60)
 - bbox 内 5×5 网格采 25 个点 × 5×5 patch；S<WHITE_SAT_MAX OR V<COLOR_VAL_MIN(40) 算"灰白"跳过
 - 圆形 hue 均值聚合 → (h, s, v)
 
-**颜色名判定**（颜色名阈值统一为 `edgesam_holds` 顶部常量）：
+**颜色名判定**：
 | 条件 | 颜色名 |
 |---|---|
 | V<60 AND S<40 | 未知(暗)（衣服/手套/手表） |
-| S<WHITE_SAT_MAX(35) | 白（不要求 V>140 —— 阴影/暖光下 V 可 120-140） |
+| S<WHITE_SAT_MAX(35) | 白（不要求 V>140） |
 | else | `route_color.hue_to_color_name(h, s)` |
 
 `HUE_BINS`：`(118,150)=紫`, `(150,170)=粉红`（按色相拆分；4.jpg 深粉红 H=163 走粉红 bin）
+
+### 简化后结果对比（2026-08-13）
+
+| 图 | 真值 | 简化前 | 简化后 |
+|---|---|---|---|
+| 1 | 紫 | 紫 75% | 紫 75% |
+| 2 | 黄 | 黄 67% | 黄 75% |
+| 3 | 绿 | 绿 100% | 绿 50% |
+| 4 | 粉红 | 粉红 100% | 红 67% |
+| 5 | 橙 | 橙 67% | 橙 50% |
+| 6 | 黄 | 白 100% | 白 100%（EdgeSAM 切割问题）|
+| 7 | 红 | 红 67% | 红 50% |
+| 8 | 蓝 | 紫 100% | 紫 100%（蓝 hold 被 person 吞）|
+| 9 | 白 | 白 100% | 白 75% |
+| 10-15 | - | 略 | 略 |
+
+**回退**：3/4/5/7 票数变散导致置信度下降（线路色仍多对），主要因为去掉双 person mask 让部分端点切到无关 mask；用户接受此回退以换取代码简洁通用。
+**修复**：9.jpg 仍判白（之前相对白路径 B 砍了又加回）。
 
 ---
 

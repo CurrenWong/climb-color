@@ -30,7 +30,7 @@ import mediapipe as mp
 
 import edgesam_holds
 from route_color import merge_flip_landmarks
-from yolo_person_mask import PersonMasker, dilate_mask
+from yolo_person_mask import PersonMasker
 
 
 # ============================================================
@@ -227,11 +227,8 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
 
     # 3. YOLO26 person mask（一次 inference，用于 4 个端点共用）
     person_mask = person_masker.segment(image_bgr) if person_masker is not None else None
-    if person_mask is not None:
-        # 边缘膨胀 6 px：让"贴近身体的碎片"也归为人
-        person_mask_d = dilate_mask(person_mask, radius=6)
-    else:
-        person_mask_d = None
+    # 简化版：去掉膨胀版/未膨胀版双 mask，统一用一个 person_mask
+    # （负点采样和 subtract 共用同一个 mask）
 
     # 3. 端点级 EdgeSAM 分割
     segmenter.set_image(image_bgr)
@@ -256,8 +253,7 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
         try:
             res = segmenter.segment_endpoint(
                 px, py, body_cx, body_cy,
-                person_mask=person_mask_d,
-                subtract_person_mask=person_mask,
+                person_mask=person_mask,
             )
         except Exception as e:
             print(f"  ⚠️ EdgeSAM 失败 ({ep_name}): {e}")
