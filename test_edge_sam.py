@@ -96,6 +96,14 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
         cv2.drawContours(image_bgr, pm_contours, -1, (180, 130, 255), 2)  # 淡紫
 
     LABEL_DX = {'L_hand': -1, 'R_hand': +1, 'L_foot': -1, 'R_foot': +1}
+    # 四肢端点 mask 边界颜色（BGR，高对比，与人体淡紫描边区分）：
+    # L_hand 亮青 / R_hand 亮黄 / L_foot 洋红 / R_foot 亮橙
+    MASK_COLORS = {
+        'L_hand': (255, 215, 0),
+        'R_hand': (0, 255, 255),
+        'L_foot': (255, 0, 255),
+        'R_foot': (0, 128, 255),
+    }
     for s in samples:
         px, py = int(s['px'][0]), int(s['px'][1])
 
@@ -112,13 +120,14 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
                      + vivid_color.astype(np.float32) * alpha)
             image_bgr[idx] = np.clip(blend, 0, 255).astype(np.uint8)
 
-            # mask 边界线：固定高对比亮青色（不随 hold 颜色变 — 白色 hold 的
-            # vivid 色是灰白，和人体淡紫描边、白墙都分不清）
-            # 外层黑色 2px 增强对比，内层亮青 3px
+            # mask 边界线：按四肢端点用不同颜色（BGR），外层黑色增强对比。
+            # 不随 hold 颜色变 — 白色 hold 的 vivid 色是灰白，和人体淡紫描边、
+            # 白墙都分不清，且不同端点要能一眼区分。
             mask_u8 = (mask_bool.astype(np.uint8)) * 255
             contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            border_color = MASK_COLORS.get(s['point'], (255, 215, 0))
             cv2.drawContours(image_bgr, contours, -1, (0, 0, 0), 6)                # 黑色外环
-            cv2.drawContours(image_bgr, contours, -1, (255, 215, 0), 3)            # 亮青色 3px
+            cv2.drawContours(image_bgr, contours, -1, border_color, 3)             # 端点专属色 3px
 
         # ---------- 端点：红色实心点 + 白圈（不变） ----------
         cv2.circle(image_bgr, (px, py), 5, (255, 255, 255), -1)
