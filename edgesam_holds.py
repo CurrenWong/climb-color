@@ -54,6 +54,14 @@ WHITE_REL_SAT_MAX = 75       # 路径 B 灰白上限
 WHITE_BRIGHT_MIN = 140       # 路径 A / 全 mask 均值兜底用
 COLOR_VAL_MIN = 40           # 网格采样：剔除近黑像素（和 route_color.detect_holds min_val=40 对齐）
 
+# 黑色 hold（攀岩黑线 / 木板深色）阈值。
+#   V<DARK_V_MAX AND S<DARK_S_MAX → mask 像素是"暗"
+#   mask 面积 >= DARK_MIN_AREA → "黑"（攀岩黑 hold）；否则"未知(暗)"（手/鞋/手表碎片）
+# 11.jpg L_foot: hold ~2000px 黑 hold 应判"黑"；手套/护腕几百像素仍判"未知(暗)"
+DARK_V_MAX = 60
+DARK_S_MAX = 40
+DARK_MIN_AREA = 600
+
 
 class EdgeSamHoldSegmenter:
     """EdgeSAM 包装：一次 set_image，多次 predict 端点 mask。"""
@@ -393,13 +401,17 @@ class EdgeSamHoldSegmenter:
             exclude_mask=subtract_person_mask if subtract_person_mask is not None else person_mask,
         )
         # 颜色名判定优先级（避免 hue bin 把黑/白误判成"红"等）：
-        #   1. V<60 AND S<40: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）
+        #   1. V<DARK_V_MAX AND S<DARK_S_MAX: 真暗（衣服/手套/手表）→ "未知(暗)"（不投 hold）
+        #      但 mask 面积足够大（DARK_MIN_AREA）→ 黑色 hold → "黑"（11.jpg L_foot）
         #   2. S<WHITE_SAT_MAX: 低饱和（白/灰 hold）→ "白"。不要求 V>WHITE_BRIGHT_MIN —— 白色 hold
         #      在阴影/暖光下 V 可能只有 120-140（9.jpg R_foot: 相对白判定
         #      返回 (0,0,136)，V=136<140 会落入 hue_to_color_name(0,0) 判"红"）
         #   3. 否则: hue_to_color_name（深蓝 hold：V<60 但 S>=60 也走这里）
-        if v < 60 and s < 40:
-            color_name = "未知(暗)"
+        area_chosen = int(chosen.sum())
+        if v < DARK_V_MAX and s < DARK_S_MAX:
+            # 暗像素：mask 够大就是黑色 hold（11.jpg L_foot 黑 hold ~2000px），
+            # 否则是手/鞋/手表碎片
+            color_name = "黑" if area_chosen >= DARK_MIN_AREA else "未知(暗)"
         elif s < WHITE_SAT_MAX:
             color_name = "白"
         else:

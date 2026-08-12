@@ -237,7 +237,7 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
     segmenter.set_image(image_bgr)
 
     samples = []
-    color_names = {'红', '橙', '黄', '绿', '青', '蓝', '紫', '粉红', '白', '未知'}
+    color_names = {'红', '橙', '黄', '绿', '青', '蓝', '紫', '粉红', '白', '黑', '未知'}
 
     endpoints = [('L_hand', 15), ('R_hand', 16), ('L_foot', 31), ('R_foot', 32)]
     for ep_name, idx in endpoints:
