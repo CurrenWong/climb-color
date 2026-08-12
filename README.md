@@ -34,15 +34,78 @@ python test_mp.py
 
 ---
 
+## EdgeSAM hold mask（baseline v2）
+
+`test_mp.py` + `route_color.py` 是 v1：**全图 HSV 阈值 + 连通域**检测岩点，再用端点环形采样投票。
+
+v1 已知局限写在 README 末尾。本仓库另有 **v2** —— 用 [EdgeSAM](https://github.com/chongzhou96/EdgeSAM)（SAM 蒸馏的边缘端变体）作为 hold 分割器，绕开颜色空间硬限制。
+
+### v2 关键差别
+
+| 维度 | v1（HSV） | v2（EdgeSAM） |
+|---|---|---|
+| 同色伪装墙（4.jpg 粉墙粉点） | 颜色分割上限，色相同色失败 | 语义感知，可分出 hold |
+| 白色岩点（9.jpg 白路线） | S<60 全过滤（白路线兜底兜底） | 在 mask 上判定"低饱+高亮 → 白" |
+| 端点采样 | 端点环采或 bbox 内采（手/脚遮住时坑） | EdgeSAM 给端点 prompt → 返回该 hold 的**精确 mask**，颜色直接从 mask 像素取 |
+| 模型 | 无（纯 CV） | 9.58M params，CPU 推理 ~1.5s/图（含 encoder） |
+
+### 跑 v2
+
+```bash
+# 1. 装依赖（CPU 版 torch）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install timm kornia yacs huggingface_hub
+
+# 2. clone EdgeSAM 并 editable 安装
+git clone --depth 1 https://github.com/chongzhou96/EdgeSAM.git
+pip install -e EdgeSAM/
+
+# 3. 下权重（手动或 hf-mirror；镜像不含 Space 类型，要从 huggingface.co 直连）
+mkdir weights
+# 浏览器或 wget：https://huggingface.co/spaces/chongzhou/EdgeSAM/resolve/main/weights/edge_sam.pth
+# 也可下 edge_sam_3x.pth（COCO AP +0.5）
+# 没 VPN 可 model scope 找替代
+
+# 4. 跑
+python test_edge_sam.py                                    # 默认 edge_sam.pth
+python test_edge_sam.py --checkpoint weights/edge_sam_3x.pth
+```
+
+输出：`result_edgesam_<N>.jpg`，对照 `result_route_<N>.jpg` 肉眼看谁判线路色更准。
+
+### v2 关键设计
+
+- **端点级 prompt**：对 MediaPipe 的 4 个端点（左手腕/右手腕/左脚尖/右脚尖）做正点 prompt，body→endpoint 方向再撒 4 个负点——让 EdgeSAM 把"端点所在的物体"和"端点附近的攀岩者身体"区分开
+- **mask 选择策略**：3 个候选 mask 里选**包含端点的最小 mask**——`score × area^{0.3}` 选的"大块"经常就是"墙+hold"被同色伪装墙骗到
+- **面积门控**：mask 面积 > 30% 图 → 视为大块，丢弃
+- **白岩点**：mask 像素 S 均值 < 35 且 V > 140 → 直接判定"白"，不走色相
+- **白兜底默认值（5×5 网格 + 5×5 patch）**：在 mask bbox 内采 25 个网格点、每点 5×5 patch 圆形均值取色——避免边缘/墙像素拉偏
+- **stub 模块**：`edgesam_stub.py` 自动注入 mmdet/mmcv/loralib 假模块——EdgeSAM 仓库顶层有训练-only import（mmdet / projects.EfficientDet git submodule / loralib），但纯推理路径用不到这些；stub 避免改源码
+
+### v2 局限（vs v1）
+
+- **CPU 推理慢**（~1.5s/图），需要 GPU 才好用——不过 EdgeSAM 蒸馏本意就是边缘
+- **首次加载慢**（模型 ~5s 加载、struct {} mmdet stub）
+- **依赖**：必须先 clone EdgeSAM 仓库（它在 git history 上是 sub-repo，不是真的 git submodule，所以单独 clone）
+- **CUDA-only 权重**：`.pth` 在 CUDA 训练，CPU 推理需要 monkeypatch `torch.load(map_location='cpu')`——stub 已处理
+
+---
+
 ## 文件结构
 
 | 文件 | 作用 |
 |---|---|
-| `test_mp.py` | 主流程：加载图片 → 姿态检测（翻转集成）→ 线路色分析 → 可视化 → 保存 |
-| `route_color.py` | 核心算法：岩点检测、端点匹配、颜色分类、白路线兜底、投票、可视化 |
-| `calibrate.py` | 交互式调参工具（4 个 trackbar 实时看效果） |
+| `test_mp.py` | v1 主流程：加载图片 → 姿态检测（翻转集成）→ 线路色分析 → 可视化 → 保存 |
+| `route_color.py` | v1 核心算法：岩点检测、端点匹配、颜色分类、白路线兜底、投票、可视化 |
+| `calibrate.py` | v1 交互式调参工具（4 个 trackbar 实时看效果） |
+| `test_edge_sam.py` | v2 主流程：用 EdgeSAM 给每个端点切 mask → 颜色投票 |
+| `edgesam_holds.py` | v2 EdgeSamHoldSegmenter 包装（load + set_image + segment_endpoint） |
+| `edgesam_stub.py` | 让 EdgeSAM 纯推理能 import：stub mmdet/mmcv/loralib git submodule + monkeypatch CUDA ckpt 加载 |
 | `img/` | 输入图片 |
-| `result_route_*.jpg` | 输出结果图 |
+| `result_route_*.jpg` | v1 输出结果图 |
+| `result_edgesam_*.jpg` | v2 输出结果图 |
+| `weights/` | EdgeSAM 权重（gitignored，需手动放） |
+| `EdgeSAM/` | EdgeSAM 仓库 clone（gitignored） |
 | `efficientdet_lite0.tflite` | ObjectDetector 测试用模型（COCO 90 类，**检测不出岩点**，可删） |
 
 > ❌ **ObjectDetector 尝试过但无效**：COCO 模型只能检出 `person`（且 5/7 号图漏检），没有"岩点"类别，无法用于识别岩点。检测岩点需要自定义训练模型。

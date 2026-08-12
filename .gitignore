@@ -2,10 +2,15 @@
 *.task
 *.tflite
 
+# EdgeSAM checkpoints (~40MB each, download on demand)
+weights/
+
+# EdgeSAM repo clone (is a self-contained git repo with its own .git; don't try to nest)
+EdgeSAM/
+
 # Image files
 *.jpg
-*.jpeg
-*.png
+*.jpeg*.png
 *.gif
 *.bmp
 *.webp
