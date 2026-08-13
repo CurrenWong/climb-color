@@ -85,6 +85,26 @@ NEG_BODY_OFFSET = 30      # 身体方向负点偏移 (px)
 NEG_RING_RADIUS = 35      # 均匀围绕负点半径
 NEG_RING_N = 5            # 均匀围绕负点数量
 
+# ============================================================
+# 环形带黑修正（实验3 落地）
+# ============================================================
+# 背景：MediaPipe 端点位置可能偏移几十 px（如 2X_01 黑线 0005s 帧
+#   R_hand 端点偏 49px），EdgeSAM 以端点为锚切 mask 会切到"端点所在
+#   的另一个 hold"（橙 hold），真正抓的黑色 hold 在 mask 外 49px 处被
+#   当背景切不进来 → 判色错。
+# 方案：不额外 predict（零成本），在 mask 外扩一个 20-70px 环形带做
+#   纯像素颜色投票。黑色 hold 在彩色岩壁上稀缺，环带黑票占比高是有
+#   信息量的信号（说明端点附近确实存在一块黑 hold 没被切进 mask）；
+#   而彩色 hold 在环带里占多是常态（无信息量），所以只做"非黑→黑"
+#   方向的修正，绝不做反向（L_hand 反例：mask 判黑正确、环带黄票 58%，
+#   对称规则会立刻破坏正确结果）。
+# 阈值/范围来自 0005s 实测：R_hand(需修) 黑票 29.3% vs
+#   L_hand(不可修) 黑票 7.8%，0.18 取中间留余量。
+RING_BLACK_D1 = 20          # 环形带内半径 (px)
+RING_BLACK_D2 = 70          # 环形带外半径 (px)
+RING_BLACK_RATIO_MIN = 0.18 # 环带黑票占比下限（超过才修正）
+RING_BLACK_MIN_PIXELS = 100 # 环带有效像素下限（太少不算）
+
 
 class EdgeSamHoldSegmenter:
     """EdgeSAM 包装：一次 set_image，多次 predict 端点 mask。"""
@@ -115,6 +135,7 @@ class EdgeSamHoldSegmenter:
         body_cx: float | None = None, body_cy: float | None = None,
         person_mask: np.ndarray | None = None,
         num_multimask_outputs: int = 4,
+        ring_black_fix: bool = True,
     ) -> dict:
         """
         对 (px, py) 这个端点做 hold 分割。
@@ -228,6 +249,20 @@ class EdgeSamHoldSegmenter:
         # 【实验 1】像素级颜色投票（并行，不改判定逻辑，供 A/B 对比）
         color_vote = _pixel_color_vote(self.last_image_bgr, chosen)
 
+        # 【实验 3】环形带黑修正（落地，默认开）
+        #   仅在 mask 判色非黑时检查：mask 外扩环带黑票占比高
+        #   （>= RING_BLACK_RATIO_MIN）→ 端点附近存在一块没被切进
+        #   mask 的黑 hold，把判定修正为黑。零额外 predict。
+        ring_black_ratio = 0.0
+        ring_black_n = 0
+        ring_black_fixed = False
+        if ring_black_fix and color_name != "黑":
+            ring_black_ratio, ring_black_n = _ring_black_ratio(
+                self.last_image_bgr, chosen, ix, iy, person_mask=person_mask)
+            if ring_black_ratio >= RING_BLACK_RATIO_MIN:
+                color_name = "黑"
+                ring_black_fixed = True
+
         return {
             "mask": chosen.astype(np.uint8) * 255,
             "mask_bool": chosen.astype(bool),
@@ -238,6 +273,11 @@ class EdgeSamHoldSegmenter:
             "fusion": fusion,
             "area": int(chosen.sum()),
             "endpoint": (px, py),
+            "ring_black": {
+                "ratio": float(ring_black_ratio),
+                "n_pixels": int(ring_black_n),
+                "fixed": bool(ring_black_fixed),
+            },
         }
 
     # ------------------------------------------------------------
@@ -357,6 +397,37 @@ def _classify_pixel(h: float, s: float, v: float) -> str:
     if s < WHITE_SAT_MAX:
         return '白' if v >= WHITE_VAL_MIN else '黑'
     return route_color.hue_to_color_name(h, s)
+
+
+def _ring_black_ratio(image_bgr: np.ndarray, mask_bool: np.ndarray,
+                      ix: int, iy: int,
+                      person_mask: np.ndarray | None = None,
+                      d1: int = RING_BLACK_D1, d2: int = RING_BLACK_D2,
+                      min_pixels: int = RING_BLACK_MIN_PIXELS) -> tuple[float, int]:
+    """
+    【实验 3】mask 外扩环形带黑票占比（零 EdgeSAM predict，纯像素）。
+
+    以端点 (ix,iy) 为圆心，取 d1-d2 px 圆环，排除 mask 本身和 person
+    mask，对剩余像素逐像素颜色分类，统计 '黑' 票占比。
+
+    返回 (black_ratio, n_pixels)。像素不足 min_pixels 时返回 (0.0, 0)。
+    """
+    h, w = image_bgr.shape[:2]
+    yy, xx = np.ogrid[:h, :w]
+    dist = np.hypot(xx - ix, yy - iy)
+    ring = (dist >= d1) & (dist <= d2) & ~mask_bool
+    if person_mask is not None and person_mask.any():
+        ring = ring & ~person_mask.astype(bool)
+    if ring.sum() < min_pixels:
+        return 0.0, 0
+    pix = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)[ring]
+    if len(pix) == 0:
+        return 0.0, 0
+    black = 0
+    for hh, ss, vv in pix:
+        if _classify_pixel(float(hh), float(ss), float(vv)) == '黑':
+            black += 1
+    return black / len(pix), len(pix)
 
 
 def _pixel_color_vote(image_bgr: np.ndarray, mask: np.ndarray,

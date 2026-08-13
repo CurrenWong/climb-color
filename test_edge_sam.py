@@ -285,6 +285,7 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
             'mask_uint8': res['mask'],
             'mask_bool': res['mask_bool'],
             'visibility': float(lm.visibility),
+            'ring_black': res.get('ring_black', {}),
         })
 
     # 4. 投票
@@ -303,9 +304,13 @@ def analyze_image(image_path: str, output_path: str, args, segmenter, person_mas
         if s.get('mask_uint8') is None:
             print(f"    {s['point']:8s}: {s['name']:6s}  vis={s.get('visibility', 0):.2f}")
         else:
+            ring_tag = ""
+            rb = s.get('ring_black') or {}
+            if rb.get('fixed'):
+                ring_tag = f"  [ring黑修正 {rb.get('ratio', 0)*100:.1f}%]"
             print(f"    {s['point']:8s}: {s['name']:6s}  "
                   f"area={s['area']:5d} score={s.get('score', 0):.2f}  "
-                  f"HSV=({s['h']:5.1f},{s['s']:5.1f},{s['v']:5.1f})")
+                  f"HSV=({s['h']:5.1f},{s['s']:5.1f},{s['v']:5.1f}){ring_tag}")
     print(f"  >>> 线路色 = {route_color}  置信度 = {conf:.0%}  票数 = {votes}")
 
     # 5. 可视化（在原图上画 mask + 端点 + header；先 mask 再骨架）
