@@ -10,6 +10,10 @@ yolo26*-seg.pt
 yolo26*.pt
 *.pt
 
+# DWPose ONNX weights (yolox_l 206MB + dw-ll_ucoco 128MB, download on demand)
+yolox*.onnx
+dw-ll_ucoco*.onnx
+
 # EdgeSAM repo clone (is a self-contained git repo with its own .git; don't try to nest)
 EdgeSAM/
 
