@@ -188,6 +188,15 @@ class EdgeSamHoldSegmenter:
         if not candidates:
             return self._empty_result(px, py, scores)
 
+        # 【实验 2】多候选融合（并行，不改现有判定；weight_map=端点近区权重）
+        yy, xx = np.ogrid[:self.last_h, :self.last_w]
+        dist_map = np.hypot(xx - ix, yy - iy)
+        weight_near = np.where(dist_map <= 40, 2.0, 1.0)
+        fusion = _fuse_candidates(
+            self.last_image_bgr, candidates, ix, iy,
+            person_mask=person_mask, weight_map=weight_near,
+        )
+
         # 排序：score 最高 → 距端点最近 → 面积大
         candidates.sort(key=lambda c: (-c[0], c[1], -c[2]))
         chosen_score, _, _, chosen = candidates[0]
@@ -216,12 +225,17 @@ class EdgeSamHoldSegmenter:
         else:
             color_name = route_color.hue_to_color_name(h, s)
 
+        # 【实验 1】像素级颜色投票（并行，不改判定逻辑，供 A/B 对比）
+        color_vote = _pixel_color_vote(self.last_image_bgr, chosen)
+
         return {
             "mask": chosen.astype(np.uint8) * 255,
             "mask_bool": chosen.astype(bool),
             "score": float(chosen_score),
             "h": float(h), "s": float(s), "v": float(v),
             "color_name": color_name,
+            "color_vote": color_vote,
+            "fusion": fusion,
             "area": int(chosen.sum()),
             "endpoint": (px, py),
         }
@@ -261,6 +275,10 @@ class EdgeSamHoldSegmenter:
             ),
             "h": 0.0, "s": 0.0, "v": 0.0,
             "color_name": "非岩点",
+            "color_vote": {"top_color": "非岩点", "top_ratio": 0.0,
+                           "votes": {}, "n_pixels": 0},
+            "fusion": {"mode": "none", "top_color": "非岩点",
+                       "per_candidate": [], "votes": {}},
             "area": 0,
             "endpoint": (px, py),
         }
@@ -327,6 +345,143 @@ def _sample_person_edge_points(person_mask: np.ndarray,
         samples[:, 0] + max_radius * 0.4 * ux,
         samples[:, 1] + max_radius * 0.4 * uy,
     ])
+
+
+def _classify_pixel(h: float, s: float, v: float) -> str:
+    """
+    单像素 → 颜色桶（实验 1 用）。
+    与现有判定逻辑对齐：
+      S<35  → 按 V 分黑/白（V>=WHITE_VAL_MIN 白，否则黑）
+      S>=35 → 按 H 走 hue_to_color_name（含青/绿饱和度分流、粉红判定）
+    """
+    if s < WHITE_SAT_MAX:
+        return '白' if v >= WHITE_VAL_MIN else '黑'
+    return route_color.hue_to_color_name(h, s)
+
+
+def _pixel_color_vote(image_bgr: np.ndarray, mask: np.ndarray,
+                      weight_map: np.ndarray | None = None,
+                      min_pixels: int = 20) -> dict:
+    """
+    【实验 1】像素级颜色分类投票（替代 _sample_color 均值采样）。
+
+    核心差异：_sample_color 在网格采样时丢弃 S<35 的像素（黑白岩点天然
+    吃亏，黑岩点在暖光下 S 只有 20-30）；这里 mask 内**每个像素**都
+    分桶投票，低饱和像素正常参与。
+
+    weight_map: 可选 HxW float，与 mask 同尺寸，逐像素权重（如端点
+    距离权重）。None = 等权。
+
+    返回:
+      {
+        'top_color': 最高票颜色名,
+        'top_ratio': 最高票占比 (top / 总票),
+        'votes': dict[颜色名 -> 加权票数],
+        'n_pixels': 参与投票像素数,
+      }
+    """
+    ys, xs = np.where(mask)
+    if len(xs) < min_pixels:
+        return {'top_color': '非岩点', 'top_ratio': 0.0, 'votes': {}, 'n_pixels': 0}
+
+    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+    pix = hsv[ys, xs]
+    if weight_map is None:
+        wts = np.ones(len(xs), dtype=np.float64)
+    else:
+        wts = weight_map[ys, xs].astype(np.float64)
+        # 权重全 0 → 退化为等权
+        if wts.sum() <= 0:
+            wts = np.ones(len(xs), dtype=np.float64)
+
+    votes: dict[str, float] = {}
+    for hh, ss, vv, ww in zip(pix[:, 0], pix[:, 1], pix[:, 2], wts):
+        name = _classify_pixel(float(hh), float(ss), float(vv))
+        votes[name] = votes.get(name, 0.0) + ww
+
+    total = float(sum(votes.values()))
+    if total <= 0:
+        return {'top_color': '非岩点', 'top_ratio': 0.0, 'votes': {}, 'n_pixels': len(xs)}
+
+    top_color = max(votes, key=votes.get)
+    return {
+        'top_color': top_color,
+        'top_ratio': votes[top_color] / total,
+        'votes': votes,
+        'n_pixels': len(xs),
+    }
+
+
+def _fuse_candidates(image_bgr: np.ndarray,
+                     candidates: list[tuple[float, float, int, np.ndarray]],
+                     ix: int, iy: int,
+                     person_mask: np.ndarray | None = None,
+                     weight_map: np.ndarray | None = None) -> dict:
+    """
+    【实验 2】多候选融合投票（替代"只取 score 最高"）。
+
+    对每个通过筛选的候选：减 person → 主连通域 → 像素级颜色投票，
+    然后按不同模式融合：
+      mode='score_weighted' : 各候选 top_color 按 score 加权投票
+      mode='count'          : 各候选 top_color 简单计数
+      mode='pixel_union'    : 所有候选 mask 并集，逐像素等权投票
+                              （weight_map 可传端点近区权重）
+
+    返回:
+      {
+        'mode': str,
+        'top_color': 融合结果,
+        'per_candidate': [{score, top_color, top_ratio, votes}, ...],
+        'votes': 融合票数,
+      }
+    """
+    per = []
+    union_mask = None
+    for score, dist, area, m in candidates:
+        m2 = m & ~person_mask.astype(bool) if person_mask is not None else m
+        if m2.sum() < COLOR_MIN_PIXELS:
+            continue
+        cc = _keep_main_component(m2.copy(), ix, iy)
+        v = _pixel_color_vote(image_bgr, cc)
+        per.append({
+            'score': score, 'dist': dist, 'area': int(cc.sum()),
+            'top_color': v['top_color'], 'top_ratio': v['top_ratio'],
+            'votes': v['votes'], 'n_pixels': v['n_pixels'],
+        })
+        union_mask = cc if union_mask is None else (union_mask | cc)
+
+    if not per:
+        return {'mode': 'none', 'top_color': '非岩点', 'per_candidate': [], 'votes': {}}
+
+    results = {}
+
+    # mode 1: score 加权 top_color 投票
+    sw: dict[str, float] = {}
+    for p in per:
+        sw[p['top_color']] = sw.get(p['top_color'], 0.0) + p['score']
+    results['score_weighted'] = max(sw, key=sw.get)
+
+    # mode 2: 简单计数
+    cnt: dict[str, int] = {}
+    for p in per:
+        cnt[p['top_color']] = cnt.get(p['top_color'], 0) + 1
+    results['count'] = max(cnt, key=cnt.get)
+
+    # mode 3: 像素级并集投票
+    if union_mask is not None and union_mask.sum() >= 20:
+        uv = _pixel_color_vote(image_bgr, union_mask, weight_map=weight_map)
+        results['pixel_union'] = uv['top_color']
+        results['pixel_union_votes'] = uv['votes']
+        results['pixel_union_ratio'] = uv['top_ratio']
+    else:
+        results['pixel_union'] = '非岩点'
+
+    return {
+        'mode': 'all',
+        'results': results,
+        'top_color': results.get('pixel_union', results.get('score_weighted', '非岩点')),
+        'per_candidate': per,
+    }
 
 
 def _sample_color(image_bgr: np.ndarray, mask: np.ndarray) -> tuple[float, float, float]:
