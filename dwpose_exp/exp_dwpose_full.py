@@ -47,8 +47,8 @@ TRUTH = {
     '2XRo7VbPgTe_wall_02_known_IMG_20260808_193745': '蓝',
     '2XRo7VbPgTe_wall_03_known_IMG_20260808_193754': '粉红',
     '2XRo7VbPgTe_wall_04_known_IMG_20260808_193724': '青',
-    '3OHz6rZ5opG_wall_01_unknown': None,
-    '3OHz6rZ5opG_wall_02_unknown': None,
+    '3OHz6rZ5opG_wall_01_unknown': '蓝',
+    '3OHz6rZ5opG_wall_02_unknown': '红',
     '3OHz6rZ5opG_wall_03_known_IMG_20260808_193612': '红',
     '3OHz6rZ5opG_wall_04_line1_white': '白',
     '3OHz6rZ5opG_wall_04_line2_pink': '粉红',
@@ -167,6 +167,7 @@ def analyze_frame(image_bgr, dw, segmenter, person_masker):
         'confidence': conf,
         'votes': votes,
         'samples': samples,
+        'person_mask': person_mask,
     }
 
 
@@ -211,7 +212,7 @@ def main():
             draw_results(display, result['samples'], result['route_color'],
                          result['confidence'], result['votes'],
                          sum(1 for s in result['samples'] if s.get('mask_uint8') is not None),
-                         person_mask=None)
+                         person_mask=result['person_mask'])
             out_path = vis_dir / f"frame_{i:02d}.jpg"
             cv2.imwrite(str(out_path), display)
 
