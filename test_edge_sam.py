@@ -46,16 +46,23 @@ def detect_pose(image_rgb: np.ndarray, landmarker, w: int, h: int,
             mp_flip = mp.Image(image_format=mp.ImageFormat.SRGB, data=flip_rgb)
             result_flip = landmarker.detect(mp_flip)
             if result_flip.pose_landmarks:
-                return merge_flip_landmarks(
-                    result.pose_landmarks[0], result_flip.pose_landmarks[0], w
-                )
+                # 原图没检测到，但 flip 检测到了 —— 直接用 flip 检测结果
+                # 原代码尝试 merge_flip_landmarks 但 result.pose_landmarks 为空
+                # （历史 bug，只有原图检测失败且 flip 成功才走这条路径）
+                # 用 flip landmarker 的 landmark 列表，x 翻回原图系，左右标签对调
+                from route_color import _FLIP_LR_PAIR, _LM
+                merged = []
+                for i in range(33):
+                    pf = result_flip.pose_landmarks[0][_FLIP_LR_PAIR.get(i, i)]
+                    merged.append(_LM(1.0 - pf.x, pf.y, pf.z, pf.visibility, pf.presence))
+                return merged
         return None
     if flip_ensemble:
         image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
         flip_rgb = cv2.cvtColor(cv2.flip(image_bgr, 1), cv2.COLOR_BGR2RGB)
         mp_flip = mp.Image(image_format=mp.ImageFormat.SRGB, data=flip_rgb)
         result_flip = landmarker.detect(mp_flip)
-        if result_flip.pose_landmarks:
+        if result_flip.pose_landmarks and result.pose_landmarks:
             return merge_flip_landmarks(
                 result.pose_landmarks[0], result_flip.pose_landmarks[0], w
             )
@@ -330,6 +337,10 @@ def main():
     ap.add_argument('--pose_model', default='pose_landmarker_full.task')
     ap.add_argument('--prefix', default='result_edgesam',
                     help='Output filename prefix')
+    ap.add_argument('--aggregate-walls', action='store_true',
+                    help='视频聚合层（方案 A）：跨当前 --img 目录下所有帧，统计端点'
+                         '颜色出现次数，最高频 = 线路色。用于一个 wall/线路 多个帧的'
+                         '投票聚合（替代单帧投票）')
     args = ap.parse_args()
 
     if not os.path.isfile(args.checkpoint):
@@ -379,9 +390,11 @@ def main():
     print("=" * 60)
     print(f"  EdgeSAM 攀岩线路色识别  ({len(files)} 张图, ckpt={os.path.basename(args.checkpoint)})")
     print("=" * 60)
+    # 收集所有帧的端点颜色（用于 --aggregate-walls 跨帧聚合）
+    aggregate_samples: list[tuple[str, list[dict]]] = []
     for i, name in enumerate(files, 1):
         print(f"\n[{i}] {name}")
-        analyze_image(
+        result = analyze_image(
             image_path=os.path.join(img_dir, name),
             output_path=f'{args.prefix}_{i}.jpg',
             args=args,
@@ -392,6 +405,32 @@ def main():
             DrawingUtils=DrawingUtils,
             DrawingStyles=DrawingStyles,
         )
+        if result is not None and args.aggregate_walls:
+            aggregate_samples.append((name, result['samples']))
+
+    # 跨帧聚合
+    if args.aggregate_walls and aggregate_samples:
+        from collections import Counter
+        SKIP = {'低置信度', '非岩点', '无法判断'}
+        all_colors: Counter = Counter()
+        n_frames = len(aggregate_samples)
+        for name, samples in aggregate_samples:
+            for s in samples:
+                name_color = s.get('name', '')
+                if name_color in SKIP:
+                    continue
+                all_colors[name_color] += 1
+        total = sum(all_colors.values())
+        print("=" * 60)
+        print(f"  📊 跨帧聚合（方案 A，最高频 = 线路色）: {n_frames} 帧, {total} 有效端点票")
+        print("=" * 60)
+        if total:
+            for color, n in all_colors.most_common():
+                pct = n / total * 100
+                bar = '█' * int(pct / 2)
+                print(f"    {color:5s}: {n:3d}  ({pct:5.1f}%)  {bar}")
+            top_color, top_n = all_colors.most_common(1)[0]
+            print(f"  >>> 线路色 = {top_color}  ({top_n}/{total} = {top_n/total*100:.0f}%)")
 
     # EdgeSAM torch 没有 close() 卡死问题，但 mediapipe 有，绕开清理
     os._exit(0)
