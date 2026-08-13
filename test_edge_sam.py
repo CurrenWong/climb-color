@@ -167,24 +167,24 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
         # ---------- 环形带黑修正可视化（mask 之后、端点之前，避免被标签盖住） ----------
         rb = s.get('ring_black') or {}
         if rb.get('ratio', 0) > 0:
-            # 环带范围：以端点为圆心 [d1, d2]
-            ring_pts = []
-            for rr in range(RING_BLACK_D1, RING_BLACK_D2 + 1, 2):
+            # 只画内外边界两个圆（不填充），避免遮挡 mask/端点
+            def _ring_circle(rr):
                 theta = np.linspace(0, 2 * np.pi, 72)
                 xs = px + rr * np.cos(theta)
                 ys = py + rr * np.sin(theta)
-                pts = np.column_stack([xs, ys]).astype(np.int32)
-                ring_pts.append(pts)
+                return np.column_stack([xs, ys]).astype(np.int32)
 
             if rb.get('fixed'):
-                # 修正命中：黄色环带（醒目）+ 黑边描边
-                cv2.polylines(image_bgr, ring_pts, True, (0, 0, 0), 4)
-                cv2.polylines(image_bgr, ring_pts, True, (0, 255, 255), 2)
+                # 修正命中：黄色外圈 + 黑边（醒目但不遮挡）
+                for rr in (RING_BLACK_D1, RING_BLACK_D2):
+                    cv2.polylines(image_bgr, [_ring_circle(rr)], True, (0, 0, 0), 3)
+                    cv2.polylines(image_bgr, [_ring_circle(rr)], True, (0, 255, 255), 1)
                 tag_color = (0, 255, 255)
                 tag_prefix = f"[ring黑修正 {rb['ratio']*100:.1f}%]"
             else:
-                # 检查过但没命中：细白环（低调）
-                cv2.polylines(image_bgr, ring_pts, True, (255, 255, 255), 1)
+                # 检查过但没命中：细白圆（低调）
+                for rr in (RING_BLACK_D1, RING_BLACK_D2):
+                    cv2.polylines(image_bgr, [_ring_circle(rr)], True, (255, 255, 255), 1)
                 tag_color = (220, 220, 220)
                 tag_prefix = f"[ring黑 {rb['ratio']*100:.1f}%<{RING_BLACK_RATIO_MIN:.0%}]"
 
