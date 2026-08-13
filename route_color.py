@@ -32,10 +32,17 @@ GREEN_CYAN_H_LO = 55
 GREEN_CYAN_H_HI = 95
 GREEN_CYAN_SAT = 130   # S 低于此 → 青，否则 → 绿
 
-# 粉红判别：色相 ≥150 已归粉红 bin；此处的 S 条件用于 (150,170) 内
-# 极高饱和（S>=200 接近真红/洋红）的兜底 —— 保持向后兼容 v1 行为。
+# 粉红判别：H>=150 归粉红区，但 (170,180) 是粉红/红临界。
+# 实测数据（EdgeSAM/DWPose 端点采样）：
+#   粉红 hold H 峰值 160~173（2X_03: 162~175 均判粉红；3O line2: 172~173）
+#   真红 hold H 峰值 174~179（3O wall_03: 176 判红）
+#   H>=174 且 S 高（>=150）→ 真红/深红；H>=174 但 S 低 → 带阴影/泛白的粉红
+#   （3O line2 0135s L_hand H=176.8 S=83 是阴影粉红，不是红）
+# 单看 S 无法区分（粉红与真红的 S>180 占比都 ~80%），需 H+S 联合。
 PINK_HUE_MIN = 150
-PINK_SAT_MAX = 200
+RED_HUE_MIN = 174
+RED_SAT_MIN = 150
+# PINK_SAT_MAX 已废弃：S 无法区分粉红/红（两者 S>180 占比都 ~80%）。
 
 
 # 肤色 HSV（仅用来排除攀岩者的身体，避免把胳膊/腿当成大岩点）
@@ -46,7 +53,10 @@ SKIN_VAL = (90, 220)
 
 
 def hue_to_color_name(h: float, s: float = 255) -> str:
-    if h >= PINK_HUE_MIN and s < PINK_SAT_MAX:
+    # 粉红 vs 红：H>=150 为粉红/品红区，但 (170,180) 是粉红/红临界。
+    # 实测：粉红 H 峰值 160~173；真红 H 174~179 且 S>=150。
+    # H>=174 且 S 低 → 阴影/泛白粉红，仍归粉红。
+    if h >= PINK_HUE_MIN and (h < RED_HUE_MIN or s < RED_SAT_MIN):
         return '粉红'
     # 青/绿模糊区：饱和度分流（浅青 vs 深绿）
     if GREEN_CYAN_H_LO <= h < GREEN_CYAN_H_HI:

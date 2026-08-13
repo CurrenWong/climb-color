@@ -258,8 +258,9 @@ def main():
             f.write(l + "\n")
     print("\n已保存 yolo26pose_full_summary.txt")
 
-    os._exit(0)
+    # 本脚本无 MediaPipe，不需要 os._exit；正常 return 即可
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

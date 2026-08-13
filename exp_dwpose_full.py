@@ -258,8 +258,10 @@ def main():
             f.write(l + "\n")
     print("\n已保存 dwpose_full_summary.txt")
 
-    os._exit(0)
+    # 本脚本无 MediaPipe（onnxruntime + EdgeSAM + YOLO seg），
+    # 不需要 os._exit；正常 return 即可（已验证 test_no_os_exit_dwpose.py）
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

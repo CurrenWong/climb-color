@@ -609,7 +609,11 @@ def _sample_color(image_bgr: np.ndarray, mask: np.ndarray) -> tuple[float, float
             iy_p = int(round(cy_g))
             if 2 <= ix_p < w_img - 2 and 2 <= iy_p < h_img - 2:
                 patch = hsv[iy_p - 2:iy_p + 3, ix_p - 2:ix_p + 3].reshape(-1, 3)
-                keep = (patch[:, 1] >= WHITE_SAT_MAX) & (patch[:, 2] >= COLOR_VAL_MIN)
+                # 关键：只统计 mask 内的像素，避免 patch 中心落在 mask 外时
+                # 采到墙/邻接 hold 的颜色污染（实测 3O line2_pink L_hand 被
+                # 墙橙红像素 H≈10 拉偏，圆形均值坍缩到 0° → 误判红）
+                mask_patch = mask[iy_p - 2:iy_p + 3, ix_p - 2:ix_p + 3].reshape(-1)
+                keep = (patch[:, 1] >= WHITE_SAT_MAX) & (patch[:, 2] >= COLOR_VAL_MIN) & mask_patch
                 if keep.sum() < 3:
                     continue
                 pix = patch[keep]
