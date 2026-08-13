@@ -210,7 +210,9 @@ class EdgeSamHoldSegmenter:
         if v < DARK_V_MAX and s < DARK_S_MAX:
             color_name = "未知(暗)"
         elif s < WHITE_SAT_MAX:
-            color_name = "白"
+            # 低饱和：V 高 → 白；V 中低 → 黑（黑色 hold 被灯光打亮时
+            # S 仍≈0 但 V 只升到 ~60-140，真白 hold V 一般 ≥160）
+            color_name = "白" if v >= WHITE_VAL_MIN else "黑"
         else:
             color_name = route_color.hue_to_color_name(h, s)
 

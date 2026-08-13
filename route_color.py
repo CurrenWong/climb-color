@@ -17,13 +17,20 @@ HUE_BINS = [
     ((0, 8),     '红'),
     ((8, 20),    '橙'),     # 红橙边界收到 8：10/13.jpg H=7.8 橙红归橙
     ((20, 30),   '黄'),
-    ((30, 80),   '绿'),
-    ((80, 95),   '青'),
+    ((30, 55),   '绿'),     # 标准绿（青绿模糊区 55-95 由饱和度分流，见 hue_to_color_name）
     ((95, 118),  '蓝'),
     ((118, 150), '紫'),     # 蓝紫/紫 hold（1.jpg 肾形紫 hold H=127）
     ((150, 170), '粉红'),   # 粉红/品红 hold（4.jpg 深粉红 hold H=163）
     ((170, 180), '红'),
 ]
+
+# 青/绿区分：H 落在 55-95 模糊区时靠饱和度分流。
+# 数据依据（EdgeSAM 实测）：
+#   2X_04 青墙端点 H=58~94 但 S 均低 (71~117) → 浅青
+#   3O_05 绿墙端点 H=61~92 但 S 均高 (154~235) → 深绿
+GREEN_CYAN_H_LO = 55
+GREEN_CYAN_H_HI = 95
+GREEN_CYAN_SAT = 130   # S 低于此 → 青，否则 → 绿
 
 # 粉红判别：色相 ≥150 已归粉红 bin；此处的 S 条件用于 (150,170) 内
 # 极高饱和（S>=200 接近真红/洋红）的兜底 —— 保持向后兼容 v1 行为。
@@ -41,6 +48,9 @@ SKIN_VAL = (90, 220)
 def hue_to_color_name(h: float, s: float = 255) -> str:
     if h >= PINK_HUE_MIN and s < PINK_SAT_MAX:
         return '粉红'
+    # 青/绿模糊区：饱和度分流（浅青 vs 深绿）
+    if GREEN_CYAN_H_LO <= h < GREEN_CYAN_H_HI:
+        return '青' if s < GREEN_CYAN_SAT else '绿'
     for (lo, hi), name in HUE_BINS:
         if lo <= h < hi:
             return name

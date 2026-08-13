@@ -62,3 +62,6 @@ ENV/
 
 # Session-local task notes (Coding Mode)
 *_TODO.md
+
+# cmd 2>nul 误生成的空文件
+$null
