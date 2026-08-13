@@ -29,6 +29,7 @@ import edgesam_stub  # noqa: F401 必须在 edge_sam 之前
 import mediapipe as mp
 
 import edgesam_holds
+from edgesam_holds import RING_BLACK_D1, RING_BLACK_D2, RING_BLACK_RATIO_MIN
 from route_color import merge_flip_landmarks
 from yolo_person_mask import PersonMasker
 
@@ -78,7 +79,10 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
     h_img, w_img = image_bgr.shape[:2]
 
     # ---------- Header（中等暗度，不再压成 25% 透明） ----------
-    header_h = 80
+    # 有 ring 修正端点时多一行图例说明
+    n_fixed = sum(1 for s in samples
+                  if (s.get('ring_black') or {}).get('fixed'))
+    header_h = 80 + (24 if n_fixed else 0)
     overlay = image_bgr.copy()
     cv2.rectangle(overlay, (0, 0), (w_img, header_h), (60, 60, 60), -1)
     cv2.addWeighted(overlay, 0.55, image_bgr, 0.45, 0, image_bgr)
@@ -90,6 +94,10 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
     vote_str = "  ".join(f"{c}={n}" for c, n in sorted(votes.items(), key=lambda x: -x[1]))
     cv2.putText(image_bgr, vote_str, (10, 72),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 230, 255), 1, cv2.LINE_AA)
+    if n_fixed:
+        cv2.putText(image_bgr,
+                    f"[环带黑修正 x{n_fixed}] 黄环=统计区({RING_BLACK_D1}-{RING_BLACK_D2}px) 黑票>={RING_BLACK_RATIO_MIN:.0%}->判黑",
+                    (10, 96), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
 
     # ---------- 人体 mask：很淡的紫色填充 + 描边（不进 hold 颜色统计） ----------
     if person_mask is not None and person_mask.any():
@@ -155,6 +163,39 @@ def draw_results(image_bgr: np.ndarray, samples: list[dict], route_color: str,
             border_color = MASK_COLORS.get(s['point'], (255, 215, 0))
             cv2.drawContours(image_bgr, contours, -1, (0, 0, 0), 6)                # 黑色外环
             cv2.drawContours(image_bgr, contours, -1, border_color, 3)             # 端点专属色 3px
+
+        # ---------- 环形带黑修正可视化（mask 之后、端点之前，避免被标签盖住） ----------
+        rb = s.get('ring_black') or {}
+        if rb.get('ratio', 0) > 0:
+            # 环带范围：以端点为圆心 [d1, d2]
+            ring_pts = []
+            for rr in range(RING_BLACK_D1, RING_BLACK_D2 + 1, 2):
+                theta = np.linspace(0, 2 * np.pi, 72)
+                xs = px + rr * np.cos(theta)
+                ys = py + rr * np.sin(theta)
+                pts = np.column_stack([xs, ys]).astype(np.int32)
+                ring_pts.append(pts)
+
+            if rb.get('fixed'):
+                # 修正命中：黄色环带（醒目）+ 黑边描边
+                cv2.polylines(image_bgr, ring_pts, True, (0, 0, 0), 4)
+                cv2.polylines(image_bgr, ring_pts, True, (0, 255, 255), 2)
+                tag_color = (0, 255, 255)
+                tag_prefix = f"[ring黑修正 {rb['ratio']*100:.1f}%]"
+            else:
+                # 检查过但没命中：细白环（低调）
+                cv2.polylines(image_bgr, ring_pts, True, (255, 255, 255), 1)
+                tag_color = (220, 220, 220)
+                tag_prefix = f"[ring黑 {rb['ratio']*100:.1f}%<{RING_BLACK_RATIO_MIN:.0%}]"
+
+            # 环带标签：画在端点上方偏移，避免和主标签重叠
+            (tag_w, tag_h), _ = cv2.getTextSize(tag_prefix, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+            tag_x = max(2, min(px - tag_w // 2, w_img - tag_w - 4))
+            tag_y = max(16, py - RING_BLACK_D2 - 8)
+            cv2.rectangle(image_bgr, (tag_x - 3, tag_y - tag_h - 3),
+                          (tag_x + tag_w + 3, tag_y + 3), (0, 0, 0), -1)
+            cv2.putText(image_bgr, tag_prefix, (tag_x, tag_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, tag_color, 1, cv2.LINE_AA)
 
         # ---------- 端点：红色实心点 + 白圈（不变） ----------
         cv2.circle(image_bgr, (px, py), 5, (255, 255, 255), -1)
