@@ -134,7 +134,11 @@ result_edgesam_N.jpg
 
 **EdgeSAM prompt**：
 - box = 端点周围 box_half*2 px 方框
-  - box_half = max(80, h // 20)，上限 250
+  - 基础：`box_half = max(80, h // 20)`，上限 250
+  - **dwpose_exp 实验扩展**：`compute_box_half()` 额外参考 person_mask bbox 短边 × 0.6 上限
+    — 攀岩者一只手/脚约占人体短边 40-60%，box 比人体大太多会切到远处无关 hold
+    （line1_white frame02 实例：box=160 切到远处红色三角 hold a=14574 压过手边白 hold；
+    box=128 后手边白 hold 候选 score 0.881 胜出）。生产 test_edge_sam.py 未启用此扩展。
 - positive point = 端点
 - negative points = 6 手工（1 身体方向 + 5 均匀围绕）+ 8 person mask 边缘外点
 - `num_multimask_outputs=4`，4 个候选 mask
@@ -232,6 +236,7 @@ result_edgesam_N.jpg
 | `0cb3a6c` | 删 `_robust_hsv_from_mask` 里粉红/紫 S 修正冗余代码（route_color 已按色相处理） | 无回归 |
 | (当前) | **白色 / 灰白 hold 阈值统一为常量**（`WHITE_SAT_MAX=35` / `WHITE_REL_SAT_MAX=75` / `WHITE_BRIGHT_MIN=140` / `COLOR_VAL_MIN=40`），原 4 处硬编码 S<35/S<75/V>140/V>=40 全替换 | 改一处即生效 |
 | (当前) | **排序 key 改成 `(-score, +dist_to_endpoint, -area)`** —— score 同分时优先选距端点近的 mask，避免选离端点远的"碰巧大 mask" | 8/9 无回归（潜在更稳） |
+| `29eeb6a` (dwpose_exp) | **box 按 person_mask 短边 × 0.6 限制**（`compute_box_half()` 函数）；BOX_HALF_MIN 80→50；sys.path 顺序 bug 修复（11 脚本统一改为 `sys.path[0:0] = [...]` 切片插入，dwpose_exp 本地副本之前从未真正加载） | DWPose 全量 **10/10 命中** ✅，总耗时 523.6s（每帧 8.06s） |
 
 ### 关键修复细节
 
