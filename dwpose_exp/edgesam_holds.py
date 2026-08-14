@@ -47,12 +47,15 @@ COLOR_MIN_PIXELS = 50
 # ============================================================
 # box prompt 自适应（高分辨率图 box 太小切不到 hold）
 # ============================================================
-# box_half = max(BOX_HALF_DEFAULT, h // BOX_HALF_HEIGHT_DIV)，上限 BOX_HALF_MAX
-# 这是通用适配（不是单图调优）：保证 box 至少能容纳 hold 的尺度
+# box_half = max(BOX_HALF_MIN, h // BOX_HALF_HEIGHT_DIV)
+#   上限：参考 person_mask bbox 短边 × BOX_PERSON_SHORT_RATIO
+# 这是通用适配（不是单图调优）：保证 box 至少能容纳 hold 的尺度，
+# 同时不会比攀岩者人体还大太多（避免切到远处无关 hold）
 BOX_HALF_DEFAULT = 80
-BOX_HALF_MIN = 80
+BOX_HALF_MIN = 50            # 最小（远景小人保护）
 BOX_HALF_MAX = 250
 BOX_HALF_HEIGHT_DIV = 20
+BOX_PERSON_SHORT_RATIO = 0.6 # box half ≤ 人体 bbox 短边 × 此比例
 
 # ============================================================
 # 颜色判定阈值
@@ -106,6 +109,32 @@ RING_BLACK_RATIO_MIN = 0.18 # 环带黑票占比下限（超过才修正）
 RING_BLACK_MIN_PIXELS = 100 # 环带有效像素下限（太少不算）
 
 
+def compute_box_half(img_h: int, person_mask: np.ndarray | None = None) -> int:
+    """
+    自适应 EdgeSAM box prompt 半边长。
+
+    基础值: max(BOX_HALF_MIN, img_h // BOX_HALF_HEIGHT_DIV)
+      — 保证 box 至少能容纳 hold 的尺度（高分辨率图自动放大）。
+
+    上限: person_mask bbox 短边 × BOX_PERSON_SHORT_RATIO
+      — 攀岩者一只手/脚约占人体短边 40-60%，box 比人体大太多会
+        切到无关远处 hold（line1_white frame02 R_hand 实例：box 160
+        切到远处红色三角 hold 14574px，挤压掉手边白色 hold 候选）。
+
+    无 person_mask 或人体 bbox 太小时回退到基础值（不强行缩小）。
+    """
+    eff = max(BOX_HALF_MIN, img_h // BOX_HALF_HEIGHT_DIV)
+    if person_mask is not None and person_mask.any():
+        ys, xs = np.where(person_mask)
+        if len(ys) > 0:
+            person_short = min(int(ys.max() - ys.min()), int(xs.max() - xs.min()))
+            if person_short > 0:
+                person_cap = max(BOX_HALF_MIN, int(person_short * BOX_PERSON_SHORT_RATIO))
+                eff = min(eff, person_cap)
+    eff = max(BOX_HALF_MIN, min(eff, BOX_HALF_MAX))
+    return eff
+
+
 class EdgeSamHoldSegmenter:
     """EdgeSAM 包装：一次 set_image，多次 predict 端点 mask。"""
 
@@ -152,9 +181,8 @@ class EdgeSamHoldSegmenter:
         if not self.predictor.is_image_set:
             raise RuntimeError("先调用 set_image() 再 segment_endpoint()")
 
-        # box prompt：端点周围自适应 box
-        eff_box_half = max(BOX_HALF_MIN, self.last_h // BOX_HALF_HEIGHT_DIV)
-        eff_box_half = min(eff_box_half, BOX_HALF_MAX)
+        # box prompt：端点周围自适应 box（参考人体 bbox 短边限制）
+        eff_box_half = compute_box_half(self.last_h, person_mask)
         ix = max(0, min(int(round(px)), self.last_w - 1))
         iy = max(0, min(int(round(py)), self.last_h - 1))
         bx1 = max(0, ix - eff_box_half)

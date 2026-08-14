@@ -7,11 +7,12 @@ import sys
 from pathlib import Path
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _BASE)
-# EdgeSAM 源码：引用根目录共享副本（大目录不复制，实验与生产共用即可）
 _ROOT = os.path.dirname(_BASE)
-sys.path.insert(0, _ROOT)  # 供 edgesam_stub（根目录共享）
-sys.path.insert(0, os.path.join(_ROOT, "EdgeSAM"))
+# sys.path 顺序: _BASE (dwpose_exp 本地副本) 优先, 然后根目录
+# (edgesam_stub 等共享模块), 最后 EdgeSAM 源码。注意: 必须用
+# 一次 slice insert 保留原 sys.path, 多次 insert(0, ...) 会反向
+# 把 _BASE 推到后面, 导致 dwpose_exp 本地副本永远不被加载。
+sys.path[0:0] = [_BASE, _ROOT, os.path.join(_ROOT, "EdgeSAM")]
 
 import cv2
 import numpy as np

@@ -21,11 +21,12 @@ from collections import Counter
 from pathlib import Path
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _BASE)
-# EdgeSAM 源码：引用根目录共享副本（大目录不复制，实验与生产共用即可）
 _ROOT = os.path.dirname(_BASE)
-sys.path.insert(0, _ROOT)  # 供 edgesam_stub（根目录共享）
-sys.path.insert(0, os.path.join(_ROOT, "EdgeSAM"))
+# sys.path 顺序: _BASE (dwpose_exp 本地副本) 优先, 然后根目录
+# (edgesam_stub 等共享模块), 最后 EdgeSAM 源码。注意: 必须用
+# 一次 slice insert 保留原 sys.path, 多次 insert(0, ...) 会反向
+# 把 _BASE 推到后面, 导致 dwpose_exp 本地副本永远不被加载。
+sys.path[0:0] = [_BASE, _ROOT, os.path.join(_ROOT, "EdgeSAM")]
 
 import cv2
 import numpy as np
@@ -49,7 +50,7 @@ TRUTH = {
     '2XRo7VbPgTe_wall_04_known_IMG_20260808_193724': '青',
     '3OHz6rZ5opG_wall_01_unknown': '蓝',
     '3OHz6rZ5opG_wall_02_unknown': '红',
-    '3OHz6rZ5opG_wall_03_known_IMG_20260808_193612': '红',
+    '3OHz6rZ5opG_wall_03_known_IMG_20260808_193612': '黄',
     '3OHz6rZ5opG_wall_04_line1_white': '白',
     '3OHz6rZ5opG_wall_04_line2_pink': '粉红',
     '3OHz6rZ5opG_wall_05_known_IMG_20260808_193650': '绿',
@@ -172,6 +173,7 @@ def analyze_frame(image_bgr, dw, segmenter, person_masker):
 
 
 def main():
+    import time
     os.chdir(BASE)
     # 大权重在根目录（不复制），用 ../ 引用
     dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
@@ -186,6 +188,9 @@ def main():
     lines = []
     all_results = []
 
+    t_total_start = time.time()
+    total_frames = 0
+
     for wall_dir in walls:
         wall_name = wall_dir.name
         n_frames = len(list(wall_dir.glob('*.jpg')))
@@ -197,12 +202,16 @@ def main():
                        key=lambda f: (int(re.sub(r'\D', '', f.name)) if re.sub(r'\D', '', f.name) else 99999, f.name))
 
         aggregate_samples = []
+        t_wall_start = time.time()
         for i, fp in enumerate(files, 1):
             image_bgr = cv2.imread(str(fp))
             if image_bgr is None:
                 continue
             print(f"\n[{i}] {fp.name}")
+            t_frame_start = time.time()
             result = analyze_frame(image_bgr, dw, segmenter, person_masker)
+            t_frame = time.time() - t_frame_start
+            print(f"  ⏱️  {fp.name}: {t_frame:.2f}s")
             if result is None:
                 print("  ⚠️ 未检测到人体")
                 continue
@@ -215,6 +224,10 @@ def main():
                          person_mask=result['person_mask'])
             out_path = vis_dir / f"frame_{i:02d}.jpg"
             cv2.imwrite(str(out_path), display)
+            total_frames += 1
+
+        t_wall = time.time() - t_wall_start
+        print(f"\n  🕐 wall 总耗时: {t_wall:.1f}s  ({n_frames} 帧)")
 
         # ---------- 跨帧聚合 ----------
         all_colors: Counter = Counter()
@@ -257,10 +270,23 @@ def main():
     for l in lines:
         print(f"  {l}")
 
+    # 计时汇总
+    t_total = time.time() - t_total_start
+    avg_per_frame = t_total / total_frames if total_frames > 0 else 0
+    avg_per_wall = t_total / len(walls) if walls else 0
+    timing_line = (f"\n=== 计时 ===\n"
+                   f"总耗时: {t_total:.1f}s ({t_total/60:.1f}min)\n"
+                   f"总帧数: {total_frames}  ({len(walls)} walls)\n"
+                   f"每帧均: {avg_per_frame:.2f}s  每墙均: {avg_per_wall:.1f}s")
+    print(timing_line)
+    timing_line_simple = (f"计时: {t_total:.0f}s 总, {avg_per_frame:.1f}s/帧, "
+                          f"{avg_per_wall:.0f}s/wall, {total_frames}帧")
+
     with open('dwpose_full_summary.txt', 'w', encoding='utf-8') as f:
         f.write(f"DWPose 全量回归: 命中 {hits}/{known}\n")
         for l in lines:
             f.write(l + "\n")
+        f.write(timing_line + "\n")
     print("\n已保存 dwpose_full_summary.txt")
 
     # 本脚本无 MediaPipe（onnxruntime + EdgeSAM + YOLO seg），
