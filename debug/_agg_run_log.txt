@@ -1,0 +1,45 @@
+共 10 个 wall
+
+=== 2XRo7VbPgTe_wall_01_known_IMG_20260808_193753 (8 张) ===
+  聚合: 黑 54% (13/24)  真值=黑 (2X_01)  ✅
+
+=== 2XRo7VbPgTe_wall_02_known_IMG_20260808_193745 (9 张) ===
+  聚合: 蓝 45% (15/33)  真值=蓝 (2X_02)  ✅
+
+=== 2XRo7VbPgTe_wall_03_known_IMG_20260808_193754 (6 张) ===
+  聚合: 粉红 32% (7/22)  真值=粉红 (2X_03)  ✅
+
+=== 2XRo7VbPgTe_wall_04_known_IMG_20260808_193724 (6 张) ===
+  聚合: 青 50% (10/20)  真值=青 (2X_04)  ✅
+
+=== 3OHz6rZ5opG_wall_01_unknown (8 张) ===
+  聚合: 蓝 35% (8/23)  真值=?  ?
+
+=== 3OHz6rZ5opG_wall_02_unknown (8 张) ===
+  聚合: 红 32% (9/28)  真值=?  ?
+
+=== 3OHz6rZ5opG_wall_03_known_IMG_20260808_193612 (4 张) ===
+  聚合: 红 33% (5/15)  真值=红 (3O_02)  ✅
+
+=== 3OHz6rZ5opG_wall_04_line1_white (5 张) ===
+  聚合: 黄 29% (4/14)  真值=白 (3O_04 line1)  ❌
+
+=== 3OHz6rZ5opG_wall_04_line2_pink (4 张) ===
+  聚合: 粉红 56% (9/16)  真值=粉红 (3O_04 line2)  ✅
+
+=== 3OHz6rZ5opG_wall_05_known_IMG_20260808_193650 (7 张) ===
+  聚合: 绿 41% (11/27)  真值=绿 (3O_05)  ✅
+
+
+=== 汇总 ===
+命中: 7/8 (已知真值 wall)
+  2XRo7VbPgTe_wall_01_known_IMG_20260808_193753            判=黑    (13/24=54%)  真值=黑 (2X_01)                  ✅
+  2XRo7VbPgTe_wall_02_known_IMG_20260808_193745            判=蓝    (15/33=45%)  真值=蓝 (2X_02)                  ✅
+  2XRo7VbPgTe_wall_03_known_IMG_20260808_193754            判=粉红   (7/22=32%)  真值=粉红 (2X_03)                 ✅
+  2XRo7VbPgTe_wall_04_known_IMG_20260808_193724            判=青    (10/20=50%)  真值=青 (2X_04)                  ✅
+  3OHz6rZ5opG_wall_01_unknown                              判=蓝    (8/23=35%)  真值=?                          ?
+  3OHz6rZ5opG_wall_02_unknown                              判=红    (9/28=32%)  真值=?                          ?
+  3OHz6rZ5opG_wall_03_known_IMG_20260808_193612            判=红    (5/15=33%)  真值=红 (3O_02)                  ✅
+  3OHz6rZ5opG_wall_04_line1_white                          判=黄    (4/14=29%)  真值=白 (3O_04 line1)            ❌
+  3OHz6rZ5opG_wall_04_line2_pink                           判=粉红   (9/16=56%)  真值=粉红 (3O_04 line2)           ✅
+  3OHz6rZ5opG_wall_05_known_IMG_20260808_193650            判=绿    (11/27=41%)  真值=绿 (3O_05)                  ✅

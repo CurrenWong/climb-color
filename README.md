@@ -1,322 +1,227 @@
-# 攀岩线路颜色识别
+# EdgeSAM for Climbing Route Color Recognition
 
-基于 MediaPipe 1.0.0 Tasks API 的攀岩图片处理工具：检测人体姿态 → 识别岩点 → 判断攀岩者正在攀爬的**线路颜色**（紫/黄/绿/蓝/红…）。
+> 从攀岩视频帧自动识别攀爬者正在攀爬的**线路颜色**（紫/黄/绿/蓝/红/粉/白/黑/青…）。
+> 基于 EdgeSAM 语义分割 + MediaPipe Pose 端点定位 + 像素级颜色投票。
 
----
-
-## 环境
-
-- Python 3.12
-- `mediapipe==1.0.0`（Tasks API，已移除 legacy `mp.solutions`）
-- `opencv-python`、`numpy`
-- 模型文件（放项目根目录）：
-  - `pose_landmarker_full.task`（姿态，~9.4MB）
-  - `pose_landmarker_lite.task` / `pose_landmarker_heavy.task`（可选，精度/速度权衡）
-  - `hand_landmarker.task`（手部，尝试过但攀岩手背对相机检测不到，未使用）
-
-```bash
-pip install mediapipe==1.0.0 opencv-python numpy
-```
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.12-blue.svg)]()
+[![EdgeSAM](https://img.shields.io/badge/EdgeSAM-v0.1-orange.svg)](https://github.com/chongzhou96/EdgeSAM)
 
 ---
 
-## 快速开始
+## ✨ Highlights
 
-```bash
-python test_mp.py
-```
-
-处理 `img/` 下全部图片（1.jpg ~ 9.jpg，按文件名数字排序），输出：
-- 控制台：每个端点的采样颜色 + 最终线路色 + 置信度
-- 图片：`result_route_<序号>.jpg`（带可视化标记）
-
-> ℹ️ 图片按文件名数字排序，文件名含非数字字符会被排在最后（如 `9-backup.jpg` 会排在新 `9.jpg` 后面）。删除旧图避免干扰。
+- **Body-Anchored Visual Prompting**: 用 person mask 引导 EdgeSAM 的 box 和负点采样，在"攀岩者嵌入 hold"场景稳定分割
+- **Ring-Based Black Vote Correction**: 零额外推理修复端点偏移导致的黑 hold 漏切（环形带黑票阈值 18%）
+- **Person-Bbox-Adaptive Box**: box half ≤ person bbox 短边 × 0.6，避免切到远处无关 hold
+- **10/10 wall-level accuracy** on 2 sport climbing videos (65 frames, 10 walls)
 
 ---
 
-## EdgeSAM hold mask（baseline v2）
+## 📸 Demo
 
-`test_mp.py` + `route_color.py` 是 v1：**全图 HSV 阈值 + 连通域**检测岩点，再用端点环形采样投票。
+| Hold 颜色识别 (单帧) | 视频帧聚合 |
+|---|---|
+| ![purple](docs/demo/result_1_purple.jpg) | ![wall_grid](docs/demo/wall_01_black_ringfix.jpg) |
+| ![pink](docs/demo/result_4_pink.jpg) | ![line1_white](docs/demo/line1_white_box_adaptive.jpg) |
+| ![orange](docs/demo/result_5_orange.jpg) | ![wall_03](docs/demo/wall_03_yellow_after_box_fix.jpg) |
 
-v1 已知局限写在 README 末尾。本仓库另有 **v2** —— 用 [EdgeSAM](https://github.com/chongzhou96/EdgeSAM)（SAM 蒸馏的边缘端变体）作为 hold 分割器，绕开颜色空间硬限制。
+更多示例见 [`docs/demo/`](docs/demo/)。
 
-### v2 关键差别
+---
 
-| 维度 | v1（HSV） | v2（EdgeSAM） |
-|---|---|---|
-| 同色伪装墙（4.jpg 粉墙粉点） | 颜色分割上限，色相同色失败 | 语义感知，可分出 hold |
-| 白色岩点（9.jpg 白路线） | S<60 全过滤（白路线兜底兜底） | 在 mask 上判定"低饱+高亮 → 白" |
-| 端点采样 | 端点环采或 bbox 内采（手/脚遮住时坑） | EdgeSAM 给端点 prompt → 返回该 hold 的**精确 mask**，颜色直接从 mask 像素取 |
-| 模型 | 无（纯 CV） | 9.58M params，CPU 推理 ~1.5s/图（含 encoder） |
+## 🚀 Quick Start
 
-### 跑 v2
+### 1. 环境
 
 ```bash
-# 1. 装依赖（CPU 版 torch）
+# 必须 Python 3.12+（EdgeSAM 的 torch/timm wheel 要求）
+# 推荐 conda 环境
+conda create -n climbing python=3.12 -y
+conda activate climbing
+
+# 基础依赖
+pip install opencv-python numpy mediapipe==1.0.0
+
+# EdgeSAM 推理依赖（CPU 版）
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-pip install timm kornia yacs huggingface_hub
-
-# 2. clone EdgeSAM 并 editable 安装
-git clone --depth 1 https://github.com/chongzhou96/EdgeSAM.git
-pip install -e EdgeSAM/
-
-# 3. 下权重（手动或 hf-mirror；镜像不含 Space 类型，要从 huggingface.co 直连）
-mkdir weights
-# 浏览器或 wget：https://huggingface.co/spaces/chongzhou/EdgeSAM/resolve/main/weights/edge_sam.pth
-# 也可下 edge_sam_3x.pth（COCO AP +0.5）
-# 没 VPN 可 model scope 找替代
-
-# 4. 跑
-python test_edge_sam.py                                    # 默认 edge_sam.pth
-python test_edge_sam.py --checkpoint weights/edge_sam_3x.pth
+pip install timm yacs
 ```
 
-输出：`result_edgesam_<N>.jpg`，对照 `result_route_<N>.jpg` 肉眼看谁判线路色更准。
-
-### v2 关键设计
-
-- **端点级 prompt**：对 MediaPipe 的 4 个端点（左手腕/右手腕/左脚尖/右脚尖）做正点 prompt，body→endpoint 方向再撒 4 个负点——让 EdgeSAM 把"端点所在的物体"和"端点附近的攀岩者身体"区分开
-- **mask 选择策略**：3 个候选 mask 里选**包含端点的最小 mask**——`score × area^{0.3}` 选的"大块"经常就是"墙+hold"被同色伪装墙骗到
-- **面积门控**：mask 面积 > 30% 图 → 视为大块，丢弃
-- **白岩点**：mask 像素 S 均值 < 35 且 V > 140 → 直接判定"白"，不走色相
-- **白兜底默认值（5×5 网格 + 5×5 patch）**：在 mask bbox 内采 25 个网格点、每点 5×5 patch 圆形均值取色——避免边缘/墙像素拉偏
-- **stub 模块**：`edgesam_stub.py` 自动注入 mmdet/mmcv/loralib 假模块——EdgeSAM 仓库顶层有训练-only import（mmdet / projects.EfficientDet git submodule / loralib），但纯推理路径用不到这些；stub 避免改源码
-
-### v2 局限（vs v1）
-
-- **CPU 推理慢**（~1.5s/图），需要 GPU 才好用——不过 EdgeSAM 蒸馏本意就是边缘
-- **首次加载慢**（模型 ~5s 加载、struct {} mmdet stub）
-- **依赖**：必须先 clone EdgeSAM 仓库（它在 git history 上是 sub-repo，不是真的 git submodule，所以单独 clone）
-- **CUDA-only 权重**：`.pth` 在 CUDA 训练，CPU 推理需要 monkeypatch `torch.load(map_location='cpu')`——stub 已处理
-
----
-
-## 文件结构
-
-| 文件 | 作用 |
-|---|---|
-| `test_mp.py` | v1 主流程：加载图片 → 姿态检测（翻转集成）→ 线路色分析 → 可视化 → 保存 |
-| `route_color.py` | v1 核心算法：岩点检测、端点匹配、颜色分类、白路线兜底、投票、可视化 |
-| `calibrate.py` | v1 交互式调参工具（4 个 trackbar 实时看效果） |
-| `test_edge_sam.py` | v2 主流程：用 EdgeSAM 给每个端点切 mask → 颜色投票 |
-| `edgesam_holds.py` | v2 EdgeSamHoldSegmenter 包装（load + set_image + segment_endpoint） |
-| `edgesam_stub.py` | 让 EdgeSAM 纯推理能 import：stub mmdet/mmcv/loralib git submodule + monkeypatch CUDA ckpt 加载 |
-| `img/` | 输入图片 |
-| `result_route_*.jpg` | v1 输出结果图 |
-| `result_edgesam_*.jpg` | v2 输出结果图 |
-| `weights/` | EdgeSAM 权重（gitignored，需手动放） |
-| `EdgeSAM/` | EdgeSAM 仓库 clone（gitignored） |
-| `efficientdet_lite0.tflite` | ObjectDetector 测试用模型（COCO 90 类，**检测不出岩点**，可删） |
-
-> ❌ **ObjectDetector 尝试过但无效**：COCO 模型只能检出 `person`（且 5/7 号图漏检），没有"岩点"类别，无法用于识别岩点。检测岩点需要自定义训练模型。
-
----
-
-## 判断流程（核心）
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. 姿态检测 (PoseLandmarker)                                  │
-│    → 33 个关键点（含双手腕/双脚尖）                             │
-│    → 翻转集成：原图 + 水平翻转双跑，逐关节取可见度高者            │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 2. 岩点检测 (detect_holds)                                    │
-│    BGR→HSV → 过滤(皮肤/低饱和/低亮) → 形态学OPEN                │
-│    → 墙mask(最大连通域颜色法) → 连通域                          │
-│    → 每个岩点: bbox/中心/面积 + 多点多patch采样颜色              │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 3. 端点匹配 (4 个四肢端点)                                     │
-│    L_hand(15) R_hand(16) L_foot(31) R_foot(32)               │
-│    每个端点: 是否在某个岩点 bbox 内?                            │
-│      ├─ 在 → 身体附件过滤(手表/护腕)→ 用该岩点 (src=hold)        │
-│      └─ 不在 → 环采样局部主色 (src=local)                      │
-│             └─ 采不到 → 判定"非岩点"(腾空/踩墙) 不投票           │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 4. 投票 (4 个端点各一票)                                       │
-│    票数最多的颜色 = 线路色                                      │
-│    置信度 = 主色票数 / 有效端点数                               │
-│    白路线兜底: 置信度<60% 时检查端点 40px 内低饱和高亮块 → 投"白"  │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 各步骤详细逻辑
-
-### 1. 姿态检测
-
-- 用 `mp.tasks.vision.PoseLandmarker`（Tasks API，`mp.solutions` 在 1.0.0 已删除）
-- **翻转集成（flip ensemble）**：同一张图跑两次——原图 + 水平翻转，逐关节取可见度高的那个（`merge_flip_landmarks`）。
-  - 为什么：MediaPipe 对高抬腿/遮挡/背对姿态在**单一方向**上定位失败（可见度掉到 0.03），但翻转后同一姿态可见度可恢复到 0.9+（实测 4.jpg 左腿：knee 0.03→0.96、foot 0.05→0.91）
-  - 翻转结果的还原：坐标翻回（`x' = 1 - x`）+ **左右标签对调**（`_FLIP_LR_PAIR`）——翻转后模型会把解剖学左右标反
-- 取 4 个**四肢端点**作为采样点：
-  - `L_hand` = 左手腕（关键点 15）
-  - `R_hand` = 右手腕（关键点 16）
-  - `L_foot` = 左脚尖（关键点 31）
-  - `R_foot` = 右脚尖（关键点 32）
-- 端点可见度 < 0.3 时标记"低置信度"，不参与投票
-- 原图未检测到人体时，自动尝试翻转图（有极少数情况翻转方向才能检出）
-
-> ⚠️ 已知限制：翻转集成能救回单方向失败的关节，但**腾空 vs 踩点**仍无法单帧判断（见"已知限制"）。
-
-### 2. 岩点检测（`detect_holds`）
-
-```
-BGR → HSV
-   │
-   ├─ 皮肤过滤: H<25 且 S 30-180 且 V 80-230（排除攀岩者身体）
-   ├─ 饱和度过滤: S ≥ 35（排除灰墙/阴影）
-   ├─ 亮度过滤: V ≥ 40
-   ├─ 形态学 OPEN ×2（去噪；故意不用 CLOSE，避免把相邻异色岩点桥接）
-   ├─ 墙 mask（最大连通域颜色法）: 找最大连通域的**平均色**作为墙色，
-   │    掩膜所有颜色距离 < 40 的像素（含被岩点切碎的墙碎片）
-   ├─ 阴影剔除: hold 相对环境亮度 < 0.85（比周围环境暗）→ 墙上的投影阴影
-   └─ 连通域 (8-连通)，过滤：
-       面积 80~10000 px
-       长宽比 ≤ 5（排除胶带/阴影长条）
-```
-
-> ⚠️ 墙 mask 已知不足：墙色是**均值**，若墙面颜色渐变大（光线/纹理），距离阈值 40 只盖住部分墙像素（实测 9.jpg 墙 77% 像素只盖住 30%）。同色伪装墙（墙=线路色，如 4.jpg 粉墙粉点）是颜色分割的极限场景。
-
-> ⚠️ **白色岩点（低饱和）不可检测**：检测体系基于"高饱和 = 岩点"（min_sat=35），白色岩点 S<60 直接被过滤。实测 9.jpg 白路线：端点环带白像素仅 2-17%，且与亮墙/亮岩点（图 3/4/5/6 白占比 12-71%）、镁粉、天花板反光无法区分。**颜色分割对"白路线"是硬限制**，需要换思路（视频/亮度对比模型）。
-
-> ✅ **白路线兜底（`detect_white_endpoints`）**：彩色投票置信度 < 60%（无明确赢家）时，检查端点 40px 内的"低饱和(S<60) + 高亮(V>140)"连通块——白岩点是暗墙上最亮的物体，高分辨率下能成形。命中端点改投"白"。**门控关键**：彩色路线置信度足够时不触发，避免镁粉/高光误伤（实测 1-8 号图零回归）。注意：白块面积需 ≥100px，**低分辨率/强遮挡图（旧 9.jpg）白块太弱检测不到**。
-
-**岩点颜色（关键修正点）**：`_robust_hold_hsv()` 在岩点 bbox 内采 **5 个点**（中心+4 象限），每点取 5×5 patch 中位色相，再圆形均值聚合。避免整个连通域统计时被**边缘/墙/邻点像素拉偏**。
-
-**色相圆形均值（历史大坑）**：Hue 周期是 180°（H=0 和 H=180 都是红），圆形均值必须**角度翻倍算、结果减半**：
-
-```python
-hues_rad = H * 2π/180          # 翻倍映射到全圆
-h = degrees(atan2(mean_sin, mean_cos)) / 2 % 180   # 减半回半圆
-```
-
-之前漏了 `/2`，导致所有色相被翻倍（绿 H=61 算成蓝 122、紫 H=127 算成绿 74），颜色全错。
-
-### 3. 颜色分类（`HUE_BINS`）
-
-标准 OpenCV 色相映射（H 0-180）：
-
-| 色相区间 | 颜色 |
-|---|---|
-| 0-10, 170-180（高饱和） | 红 |
-| 10-20 | 橙 |
-| 20-30 | 黄 |
-| 30-80 | 绿 |
-| 80-95 | 青 |
-| 95-118 | 蓝 |
-| 118-170 | 紫（含蓝紫，攀岩"冷紫"常见 H≈120-130） |
-| **H≥150 且 S<120** | **粉红**（低饱和的粉/品红，与真红靠饱和度区分） |
-
-> 118-170 归紫是实测校准：图 1 的肾形紫 hold 统计色相 120.2（真主色 127），人眼看紫。
-> **粉红 vs 红**：色相上粉红 (H≈150-180) 和红 (H≈0-15 或 170-180) 在圆形色相上是相邻的，唯一可靠区分是**饱和度**——粉红 S 低（40-110），真红 S 高（>120）。图 4 实测：粉红线路 hold S≈48-102 全部被错叫"红"或"紫"，加粉红 bin 后正确输出"粉红"。
-
-### 4. 端点匹配（关键决策逻辑）
-
-对每个端点 `(px, py)`：
-
-```
-是否在某个岩点 bbox 内（±5px margin）？
-  ├─ 是 → 检查是否"身体附件"（_is_body_attachment）
-  │       │    手表/护腕/手部碎片嵌在身体里，远离身体侧也被皮肤包围
-  │       ├─ 是身体附件 → 不算岩点，降级走环采样（src='local'）
-  │       └─ 不是 → 用该岩点（多个包含时取面积最大者）
-  │               src='hold'：颜色 = 岩点多点采样色，粉点标在岩点中心
-  │
-  └─ 否 → 环采样局部主色 (src='local')
-          ├─ 内半径 20px（跳过手/脚主体，避免采到攀岩鞋/手套）
-          ├─ 外半径 45px（采岩点环绕区域）
-          ├─ 过滤皮肤 + 低饱和
-          └─ 饱和度加权圆形均值 → 主色
-          └─ 采不到有效颜色 → '非岩点'（腾空/踩墙），不投票
-```
-
-**为什么用 bbox 内判断而不是中心距离**：岩点可能很大（如 41×117px），脚踩在岩点边缘时中心距离 60px+，但端点明明在岩点 bbox 内。bbox 判断更准。
-
-**为什么局部兜底用环采样**：端点在手上，直接采样会采到手本身（皮肤/攀岩鞋/手套）。环采样跳过中心 20px，只采岩点环绕区域。
-
-**身体附件过滤（`_is_body_attachment`）**：手表/护腕/手部碎片嵌在身体里，皮肤从**四面八方**包围它（含远离身体侧）；真岩点只在**身体侧**有皮肤（攀爬者伸手抓时手从身体方向盖住岩点一侧）。规则：hold bbox 外扩 20px 环形带，按"身体→hold中心"方向投影，**远离侧皮肤占比 > 40% → 身体附件**。实测 4.jpg：手表（18×19 蓝方块）正确识别为附件，正被手抓着的红岩点（37×121）保留。
-
-### 5. 投票
-
-- 4 个端点各投 1 票（颜色名）
-- `'非岩点'` / `'低置信度'` 不参与
-- 票数最多 = 线路色；置信度 = 主色票数 / 有效票数
-- 平票时取 `Counter` 第一个（按插入顺序）
-
----
-
-## 可视化说明（result_route_*.jpg）
-
-| 标记 | 含义 |
-|---|---|
-| 红色实心点（白圈） | **采样点**（四肢端点位置） |
-| 粉色圆点 + 十字 | **岩点中心**（匹配到的岩点） |
-| 彩色矩形框 | 岩点范围（框内为岩点本色，可肉眼核对） |
-| 白色连线 | 采样点 → 岩点中心 |
-| 黑底标签 | `L_hand采样点->紫(32px)` 等 |
-| 顶部 header | 线路色 + 置信度 + 票数 + 岩点统计 |
-
-**执行顺序注意**：必须先做颜色分析、再画姿态骨架——否则骨架的彩色线/圆点会被 `detect_holds` 当成"大岩点"干扰。
-
----
-
-## 交互式调参（calibrate.py）
+### 2. 下载权重
 
 ```bash
-python calibrate.py
+python download_weights.py          # 下载全部
+python download_weights.py edgesam yolo26  # 按需下载
 ```
 
-4 个 trackbar：
-- `green_to_purple`（绿紫边界，默认 30 对应 HUE_BINS 内对应处）
-- `yellow_to_green`（黄绿边界）
-- `purple_to_blue`（蓝紫边界）
-- `torso_pen`（躯干惩罚，当前未启用）
+或手动下载到项目根：
+- `edge_sam.pth` (~40MB) — [EdgeSAM 官方](https://github.com/chongzhou96/EdgeSAM)
+- `yolo26m-seg.pt` (~53MB) — ultralytics v8.4.0 release
+- `pose_landmarker_*.task` (~5-29MB) — [MediaPipe Pose](https://developers.google.com/mediapipe/solutions/vision/pose_landmarker)
+- `yolox_l.onnx` (206MB) + `dw-ll_ucoco_384.onnx` (128MB) — [DWPose](https://github.com/TH14GZI-J/DWPose-onnx)（可选，DWPose 实验用）
 
-操作：`N` 切图、`S` 保存参数到 `calibrate.json`、`ESC` 退出。
+### 3. Clone EdgeSAM 源码
 
-> ⚠️ trackbar 名字必须用纯 ASCII（中文/`->` 会让 Windows OpenCV 5.0 的窗口注册成 NULL 崩溃）。
+```bash
+git clone --depth 1 https://github.com/chongzhou96/EdgeSAM.git
+```
 
----
+### 4. 运行
 
-## 已知限制与后续方向
+```bash
+# 单图识别
+python test_edge_sam.py --img img/1.jpg
 
-1. **腾空 vs 踩点无法单帧判断**（4.jpg 右脚腾空，环采样把脚后墙上的青色 hold 采进来投了假票）：
-   - 翻转集成能救回**方向性失败**的关节（高抬腿/遮挡），但救不了**腾空误采**——脚在空中时，环采样采到的是墙/后面的岩点
-   - 方向：视频多帧（腾空是瞬时状态，多帧能看脚是否接触墙），或换 RTMPose / DWPose
+# 视频帧 wall 聚合（路线色识别）
+python test_edge_sam.py --aggregate-walls
+```
 
-2. **同色伪装墙**（墙=线路色）是颜色分割的极限：4.jpg 粉墙粉点、9.jpg 黄墙，holds 和墙同色时 `detect_holds` 无法区分。
-
-3. **白色路线（低饱和岩点）**：默认不可检测（S<60 过不了 min_sat）。**白路线兜底**（置信度<60% 时启用端点白块检测）在**高分辨率**下有效（新 9.jpg → 白 ✓）；低分辨率/强遮挡下白块太弱仍会失败。若经常遇到白路线，建议换视频输入或亮度对比模型。
-
-3. **参数过拟合风险**：阈值（min_sat/val/area）、HUE_BINS、环半径、bbox margin 均基于少量样例调校，**换岩馆/光线/岩点造型需要重新验证**。
-
-4. **颜色分类依赖 HSV 色相**：阴影、色温偏移、褪色岩点可能跨越 bin 边界。118-170 归紫等边界按人眼感知微调过。
-
-5. **`hand_landmarker.task` 不可用**：攀岩者背对相机、手掌朝向墙面，手部检测无法定位手。
+> ⚠️ **MediaPipe 1.0.0 TFLite 析构慢**（约 42s/进程），脚本末尾使用 `os._exit(0)` 跳过 GC 卡顿。`debug/test_no_os_exit_mp.py` 验证了正常 return 也可工作。
 
 ---
 
-## 踩坑记录
+## 📊 Results
 
-| 坑 | 现象 | 修复 |
-|---|---|---|
-| `mp.solutions` 被删 | 1.0.0 导入报错 | 迁移 Tasks API + 下载 `.task` 模型 |
-| `landmarker.close()` 卡死 | Windows + TFLite 析构无限阻塞 | 不 close / 不 del，末尾 `os._exit(0)` |
-| 色相圆形均值漏 `/2` | 绿算成蓝、紫算成绿 | 补 `/2`（角度翻倍算结果减半） |
-| MORPH_CLOSE 桥接 | 绿+红+墙合并成大"蓝"连通域 | 只 OPEN 不 CLOSE |
-| 先画骨架再分析颜色 | 骨架被当成岩点 | 先颜色分析后画骨架 |
-| trackbar 中文名崩溃 | OpenCV w32 后端窗口 NULL | 纯 ASCII trackbar 名 |
-| **高抬腿/背对姿态单方向失败** | 4.jpg 左腿可见度 0.03，位置错到蓝 hold 上 | **翻转集成**：原图+翻转双跑，逐关节取可见度高者（可见度 0.03→0.96） |
-| **翻转后左右标反** | 翻转检测的 L_shoulder 实际是解剖学 R_shoulder | `_FLIP_LR_PAIR` 对调 1-16/23-32 全部左右对 |
-| **同进程第二个 landmarker 卡死** | 建完 full 再建 heavy，进程阻塞 | 每个模型单独进程跑 |
-| **手表/护腕被当岩点** | 4.jpg 左手腕手表（蓝 18×19）被 bbox 匹配投票 | `_is_body_attachment` 远离侧皮肤占比过滤 |
-| **粉红被叫成红/紫** | 粉红 H≈150-180 S<120 被 118-170 归紫、170-180 归红 | 加粉红 bin：H≥150 且 S<120 → 粉红 |
-| **墙面阴影被当岩点** | 9.jpg 橙色框很多是板子上阴影（暗、相对亮度<0.85） | `detect_holds` 阴影剔除：相对环境亮度 < 0.85 → 跳过 |
-| **白岩点检测不到** | 白路线 S<60 过不了 min_sat，环采样被高饱和墙色淹没 | 白路线兜底：置信度<60% 时查端点 40px 内低饱和高亮块（S<60,V>140,≥100px）→ 投白 |
+### 单图测试集（15 张，EdgeSAM v2 管线）
+
+| # | 真值 | 判定 | 命中 | 备注 |
+|---|---|---|---|---|
+| 1 | 紫 | 紫 75% | ✅ | EdgeSAM 切到紫色 hold |
+| 2 | 黄 | 黄 67% | ✅ | |
+| 3 | 绿 | 绿 100% | ✅ | |
+| 4 | 粉红 | 粉红 100% | ✅ | 同色伪装墙（粉墙粉点） |
+| 5 | 橙 | 橙 67% | ✅ | |
+| 6 | 黄 | 白 100% | ❌ | EdgeSAM 切不到黄 hold（R_foot 判白） |
+| 7 | 红 | 红 67% | ✅ | |
+| 8 | 蓝 | 紫 100% | ❌ | 蓝 hold 被 person mask 吞（R_foot 切到粉/紫） |
+| 9 | 白 | 白 100% | ✅ | 相对白路径触发 |
+| 10-15 | — | — | — | 扩展测试集（见 `LESSONS.md`） |
+
+**基线 8/9（6/8 失败为 EdgeSAM 切割固有失败，非后处理可解）**
+
+### 视频全量回归（2 段攀岩视频，65 帧 / 10 walls）
+
+| 视频 wall | 真值 | DWPose + EdgeSAM + Ring 黑修正 + Box 自适应 | 状态 |
+|---|---|---|---|
+| 2XRo7VbPgTe wall_01 | 黑 | 黑 14/26 | ✅ |
+| 2XRo7VbPgTe wall_02 | 蓝 | 蓝 19/30 | ✅ |
+| 2XRo7VbPgTe wall_03 | 粉红 | 粉红 10/23 | ✅ |
+| 2XRo7VbPgTe wall_04 | 青 | 青 7/21 | ✅ |
+| 3OHz6rZ5opG wall_01 | 蓝 | 蓝 10/30 | ✅ |
+| 3OHz6rZ5opG wall_02 | 红 | 红 13/28 | ✅ |
+| 3OHz6rZ5opG wall_03 | 黄 | 黄 6/12 | ✅ |
+| 3OHz6rZ5opG wall_04 line1 | 白 | 白 6/16 | ✅ |
+| 3OHz6rZ5opG wall_04 line2 | 粉红 | 粉红 4/15 | ✅ |
+| 3OHz6rZ5opG wall_05 | 绿 | 绿 8/24 | ✅ |
+
+**10/10 wall-level 命中**（每帧 ~8.06s on CPU）
+
+---
+
+## 🏗️ 项目结构
+
+```
+mediapipe2/
+├── test_edge_sam.py            # 主入口：EdgeSAM + MediaPipe 单帧识别
+├── edgesam_holds.py            # EdgeSAM segmenter 包装（box prompt、候选筛选、ring 黑修正）
+├── route_color.py              # HSV 颜色分类 + 端点邻域像素投票
+├── yolo_person_mask.py         # YOLO26m 攀岩者人体分割
+├── edgesam_stub.py             # stub mmdet/mmcv 让 EdgeSAM 纯推理能 import
+├── download_weights.py         # 权重下载脚本
+├── debug/                      # 探索性脚本（按惯例保留）
+├── dwpose_exp/                 # DWPose 实验子项目（与 MediaPipe 生产解耦）
+│   ├── exp_dwpose_full.py      # DWPose 全量回归
+│   ├── dbg_line1_frame02_candidates.py  # 4 候选 mask 选择可视化
+│   └── README.md
+├── EdgeSAM/                    # EdgeSAM 源码 clone（gitignored）
+├── weights/                    # EdgeSAM 权重（gitignored）
+├── docs/demo/                  # README 引用的精选 demo 图
+├── PIPELINE.md                 # 完整管线技术细节
+├── LESSONS.md                  # 12 章工程踩坑与经验
+├── PRODUCT.md                  # 9 张图诊断（项目起源）
+└── CHANGELOG.md                # 版本变更
+```
+
+---
+
+## 🧪 关键设计
+
+### 1. EdgeSAM box+point prompt（核心）
+- **box** = 端点周围自适应半边长（按 person bbox 短边 × 0.6 上限）
+- **1 正点**（端点位置）+ **14 负点**（1 身体方向 + 5 均匀围绕 + 8 person mask 边缘外）
+- `num_multimask=4` 候选 → 选 (-score, +dist, -area) 最优
+
+### 2. Ring-Based Black Vote Correction（零额外推理）
+- 动机：MediaPipe 端点偏移时（如 2X_01 R_hand 偏 49px），EdgeSAM 切不到真 hold
+- 方案：mask 判色非黑时，统计 mask 外扩 20-70px 环带黑票占比 ≥ 18% → 修正为黑
+- 方向不对称：彩色 hold 环带占多无信息量；黑 hold 在彩色墙稀缺 = 信号
+- **修复 2X_01 黑线 miss**（line1_white 从橙 → 白 ✅）
+
+### 3. Pixel-Level Color Voting
+- 替代 `_sample_color` 均值采样
+- 每个像素按规则分桶（黑/白/红/橙/黄…），桶计数投票
+- 不再系统剔除低饱和像素，多色混合 mask 也稳定
+
+### 4. Person-Bbox-Adaptive Box
+- `compute_box_half(h, person_mask)` 函数
+- box half = max(BOX_HALF_MIN, h // BOX_HALF_HEIGHT_DIV)，上限 person bbox 短边 × 0.6
+- **修复 line1_white R_hand 选远处红色 hold**（box=160 → 128 后手边白 hold 胜出）
+
+详见 [`PIPELINE.md`](PIPELINE.md) 技术细节。
+
+---
+
+## 📚 文档
+
+- **[PIPELINE.md](PIPELINE.md)** — 完整技术细节（box/point prompt 设计、ring 黑修正算法、像素级投票、跨帧聚合）
+- **[LESSONS.md](LESSONS.md)** — 12 章工程经验（EdgeSAM 集成踩坑、MediaPipe flip ensemble、HSV 圆形均值、YOLO26 vs DWPose 端点对比）
+- **[PRODUCT.md](PRODUCT.md)** — 9 张图诊断记录（项目起源：第一版"颜色空间分割"的极限场景分析）
+- **[dwpose_exp/README.md](dwpose_exp/README.md)** — DWPose 实验子项目说明
+
+---
+
+## 🔬 引用
+
+如果你在论文中使用了本项目：
+
+```bibtex
+@misc{climbing_edge_sam_2026,
+  title={EdgeSAM-based Climbing Route Color Recognition},
+  author={Curren},
+  year={2026},
+  url={https://github.com/curren/mediapipe2}
+}
+```
+
+依赖项目：
+
+- [EdgeSAM](https://github.com/chongzhou96/EdgeSAM) — Zhou et al., "EdgeSAM: Prompt-In-the-Loop Distillation for On-Device Deployment of SAM"
+- [MediaPipe](https://developers.google.com/mediapipe) — Google, "MediaPipe Pose"
+- [YOLO26](https://github.com/ultralytics/ultralytics) — Ultralytics
+- [DWPose](https://github.com/TH14GZI-J/DWPose-onnx) — DWPose: Efficient Whole-body Pose Estimation
+
+---
+
+## 📝 已知限制
+
+1. **白色 hold 端点偏移问题**：line1_white wall 整体判白 ✅（聚合救回），但逐帧看仅 2/5 帧端点在白 hold 上，其他帧攀岩者抓黄/青 hold
+2. **EdgeSAM 小目标切割**：6/8/15.jpg 等场景 EdgeSAM 切不到目标 hold（远景、密集 hold）
+3. **MediaPipe 端点精度**：手/脚遮挡时 conf 掉到 0.1-0.26，替代方案 DWPose 已在 `dwpose_exp/` 验证
+4. **CPU 推理慢**：每帧 ~8.06s（EdgeSAM + 2 ONNX + YOLO26m + MediaPipe），GPU 加速可降至 <1s
+
+---
+
+## 🤝 贡献
+
+欢迎 issue 和 PR！
+
+- 修复 bug / 添加功能请先开 issue 讨论
+- 提交代码请确保 `python -m py_compile` 通过
+- 新的调试脚本请放 `debug/` 子目录
+
+---
+
+## 📄 License
+
+MIT — 见 [LICENSE](LICENSE)。

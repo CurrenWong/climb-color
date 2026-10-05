@@ -25,6 +25,12 @@ EdgeSAM/
 *.bmp
 *.webp
 
+# BUT: docs/demo/ contains curated demo images for README, allow them
+!docs/
+!docs/demo/
+!docs/demo/*.jpg
+!docs/demo/*.png
+
 # Video files
 *.mp4
 *.avi
