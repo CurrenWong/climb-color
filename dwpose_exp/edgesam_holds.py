@@ -22,6 +22,8 @@ EdgeSAM 端点级 hold 分割模块（简化通用版）。
 """
 from __future__ import annotations
 
+import os
+
 import cv2
 import numpy as np
 import torch
@@ -83,6 +85,26 @@ DARK_S_MAX = 40
 PERSON_EDGE_NEG_N = 8
 PERSON_EDGE_MAX_RADIUS = 60
 
+# ============================================================
+# 论文 ablation 开关（环境变量控制，默认 = 生产配置）
+# ============================================================
+# USE_PIXEL_VOTE=1
+#   用像素级颜色投票（color_vote['top_color']）替代 _sample_color
+#   均值采样来判定 color_name。
+#   默认 0 ⇒ 当前生产判定仍是 mean-HSV（论文贡献 3 待落地验证）。
+# DISABLE_PERSON_EDGE_NEG=1
+#   关闭 8 个 person mask 边缘负点（论文 ablation
+#   "− Body-anchored negative points"）。
+# 用法:
+#   set USE_PIXEL_VOTE=1 && python exp_dwpose_full.py
+USE_PIXEL_VOTE = os.environ.get("USE_PIXEL_VOTE", "0").strip() == "1"
+DISABLE_PERSON_EDGE_NEG = os.environ.get("DISABLE_PERSON_EDGE_NEG", "0").strip() == "1"
+# DISABLE_RING_BLACK=1 : 关闭环形带黑票修正（论文 ablation "− Ring black vote"）
+DISABLE_RING_BLACK = os.environ.get("DISABLE_RING_BLACK", "0").strip() == "1"
+# FIXED_BOX=1 : 关闭 person-bbox 自适应，回退固定 box_half = max(80, h//20)
+#               （论文 ablation "− Person-bbox-adaptive box"）
+FIXED_BOX = os.environ.get("FIXED_BOX", "0").strip() == "1"
+
 # 负点（手工部分）参数
 NEG_BODY_OFFSET = 30      # 身体方向负点偏移 (px)
 NEG_RING_RADIUS = 35      # 均匀围绕负点半径
@@ -124,6 +146,9 @@ def compute_box_half(img_h: int, person_mask: np.ndarray | None = None) -> int:
     无 person_mask 或人体 bbox 太小时回退到基础值（不强行缩小）。
     """
     eff = max(BOX_HALF_MIN, img_h // BOX_HALF_HEIGHT_DIV)
+    if FIXED_BOX:
+        # ablation: 关闭 person-bbox 自适应（回退固定 box，min 用历史值 80）
+        return min(max(80, img_h // BOX_HALF_HEIGHT_DIV), BOX_HALF_MAX)
     if person_mask is not None and person_mask.any():
         ys, xs = np.where(person_mask)
         if len(ys) > 0:
@@ -193,7 +218,8 @@ class EdgeSamHoldSegmenter:
 
         # 负点：1 个身体方向 + NEG_RING_N 个均匀围绕 + person mask 边缘外
         neg = self._make_negative_prompts(px, py, body_cx, body_cy)
-        if person_mask is not None and person_mask.any():
+        if (person_mask is not None and person_mask.any()
+                and not DISABLE_PERSON_EDGE_NEG):
             edge_pts = _sample_person_edge_points(
                 person_mask, n=PERSON_EDGE_NEG_N, max_radius=PERSON_EDGE_MAX_RADIUS
             )
@@ -261,21 +287,26 @@ class EdgeSamHoldSegmenter:
         # 主连通域
         chosen = _keep_main_component(chosen, ix, iy)
 
-        # 颜色统计
+        # 颜色统计（mean-HSV，基线路径）
         h, s, v = _sample_color(self.last_image_bgr, chosen)
 
-        # 颜色名
-        if v < DARK_V_MAX and s < DARK_S_MAX:
-            color_name = "未知(暗)"
-        elif s < WHITE_SAT_MAX:
-            # 低饱和：V 高 → 白；V 中低 → 黑（黑色 hold 被灯光打亮时
-            # S 仍≈0 但 V 只升到 ~60-140，真白 hold V 一般 ≥160）
-            color_name = "白" if v >= WHITE_VAL_MIN else "黑"
-        else:
-            color_name = route_color.hue_to_color_name(h, s)
-
-        # 【实验 1】像素级颜色投票（并行，不改判定逻辑，供 A/B 对比）
+        # 【实验 1】像素级颜色投票（论文贡献 3）
+        #   USE_PIXEL_VOTE=1 时由它接管 color_name 判定；
+        #   默认 0 = 保持 mean-HSV 基线（与历史结果一致）。
         color_vote = _pixel_color_vote(self.last_image_bgr, chosen)
+
+        if USE_PIXEL_VOTE:
+            color_name = color_vote["top_color"]
+        else:
+            # 颜色名（mean-HSV 基线）
+            if v < DARK_V_MAX and s < DARK_S_MAX:
+                color_name = "未知(暗)"
+            elif s < WHITE_SAT_MAX:
+                # 低饱和：V 高 → 白；V 中低 → 黑（黑色 hold 被灯光打亮时
+                # S 仍≈0 但 V 只升到 ~60-140，真白 hold V 一般 ≥160）
+                color_name = "白" if v >= WHITE_VAL_MIN else "黑"
+            else:
+                color_name = route_color.hue_to_color_name(h, s)
 
         # 【实验 3】环形带黑修正（落地，默认开）
         #   仅在 mask 判色非黑时检查：mask 外扩环带黑票占比高
@@ -284,7 +315,7 @@ class EdgeSamHoldSegmenter:
         ring_black_ratio = 0.0
         ring_black_n = 0
         ring_black_fixed = False
-        if ring_black_fix and color_name != "黑":
+        if ring_black_fix and not DISABLE_RING_BLACK and color_name != "黑":
             ring_black_ratio, ring_black_n = _ring_black_ratio(
                 self.last_image_bgr, chosen, ix, iy, person_mask=person_mask)
             if ring_black_ratio >= RING_BLACK_RATIO_MIN:

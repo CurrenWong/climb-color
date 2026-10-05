@@ -1,16 +1,16 @@
-DWPose 全量回归: 命中 10/10
-2XRo7VbPgTe_wall_01_known_IMG_20260808_193753            判=黑    (14/26)  真值=黑       ✅
-2XRo7VbPgTe_wall_02_known_IMG_20260808_193745            判=蓝    (19/30)  真值=蓝       ✅
-2XRo7VbPgTe_wall_03_known_IMG_20260808_193754            判=粉红   (10/23)  真值=粉红      ✅
-2XRo7VbPgTe_wall_04_known_IMG_20260808_193724            判=青    (7/21)  真值=青       ✅
-3OHz6rZ5opG_wall_01_unknown                              判=蓝    (10/30)  真值=蓝       ✅
-3OHz6rZ5opG_wall_02_unknown                              判=红    (13/28)  真值=红       ✅
-3OHz6rZ5opG_wall_03_known_IMG_20260808_193612            判=黄    (6/12)  真值=黄       ✅
-3OHz6rZ5opG_wall_04_line1_white                          判=白    (6/16)  真值=白       ✅
-3OHz6rZ5opG_wall_04_line2_pink                           判=粉红   (4/15)  真值=粉红      ✅
-3OHz6rZ5opG_wall_05_known_IMG_20260808_193650            判=绿    (8/24)  真值=绿       ✅
+DWPose 全量回归: 命中 8/10
+2XRo7VbPgTe_wall_01_known_IMG_20260808_193753            判=黑    (14/27)  真值=黑       ✅
+2XRo7VbPgTe_wall_02_known_IMG_20260808_193745            判=蓝    (14/31)  真值=蓝       ✅
+2XRo7VbPgTe_wall_03_known_IMG_20260808_193754            判=粉红   (8/22)  真值=粉红      ✅
+2XRo7VbPgTe_wall_04_known_IMG_20260808_193724            判=青    (9/20)  真值=青       ✅
+3OHz6rZ5opG_wall_01_unknown                              判=蓝    (9/30)  真值=蓝       ✅
+3OHz6rZ5opG_wall_02_unknown                              判=红    (9/28)  真值=红       ✅
+3OHz6rZ5opG_wall_03_known_IMG_20260808_193612            判=红    (4/13)  真值=黄       ❌
+3OHz6rZ5opG_wall_04_line1_white                          判=橙    (5/17)  真值=白       ❌
+3OHz6rZ5opG_wall_04_line2_pink                           判=粉红   (6/15)  真值=粉红      ✅
+3OHz6rZ5opG_wall_05_known_IMG_20260808_193650            判=绿    (12/24)  真值=绿       ✅
 
 === 计时 ===
-总耗时: 523.6s (8.7min)
+总耗时: 577.1s (9.6min)
 总帧数: 65  (10 walls)
-每帧均: 8.06s  每墙均: 52.4s
+每帧均: 8.88s  每墙均: 57.7s

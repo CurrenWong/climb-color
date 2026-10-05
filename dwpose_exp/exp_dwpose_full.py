@@ -28,6 +28,24 @@ _ROOT = os.path.dirname(_BASE)
 # 把 _BASE 推到后面, 导致 dwpose_exp 本地副本永远不被加载。
 sys.path[0:0] = [_BASE, _ROOT, os.path.join(_ROOT, "EdgeSAM")]
 
+# ---- 论文 ablation flags（必须在 import edgesam_holds 之前设环境变量）----
+#   --pixel-vote   : 用像素级颜色投票替代 mean-HSV 判定
+#   --no-edge-neg  : 关闭 person mask 边缘 8 负点
+#   --ring-off     : 关闭环形带黑票修正
+# 用法: python exp_dwpose_full.py --pixel-vote [wall数]
+_ABL = {a for a in sys.argv[1:] if a.startswith('--')}
+if '--pixel-vote' in _ABL:
+    os.environ['USE_PIXEL_VOTE'] = '1'
+if '--no-edge-neg' in _ABL:
+    os.environ['DISABLE_PERSON_EDGE_NEG'] = '1'
+if '--ring-off' in _ABL:
+    os.environ['DISABLE_RING_BLACK'] = '1'
+if '--fixed-box' in _ABL:
+    os.environ['FIXED_BOX'] = '1'
+if _ABL:
+    sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if not a.startswith('--')]
+    print(f"[ablation] flags={sorted(_ABL)}")
+
 import cv2
 import numpy as np
 

@@ -50,8 +50,6 @@ class DWPoseONNX:
         boxes = predictions[:, :4]
         # 该 onnx 输出为 logits（obj/cls 需 sigmoid 才是概率）
         obj = 1.0 / (1.0 + np.exp(-predictions[:, 4]))
-        cls = 1.0 / (1.0 + np.exp(-predictions[:, 5:]))
-        scores = obj[:, None] * cls
         boxes_xyxy = np.ones_like(boxes)
         boxes_xyxy[:, 0] = boxes[:, 0] - boxes[:, 2] / 2.
         boxes_xyxy[:, 1] = boxes[:, 1] - boxes[:, 3] / 2.
@@ -59,20 +57,26 @@ class DWPoseONNX:
         boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2.
         boxes_xyxy /= ratio
 
-        dets = self._multiclass_nms(boxes_xyxy, scores, DET_NMS_THR, DET_SCORE_THR)
-        if dets is None:
+        # 只处理 person（COCO class 0）。
+        # 原实现调 _multiclass_nms：对 80 个类别逐个跑纯 Python 的 _nms
+        # 循环，每类阈值过滤后仍有数千框 → 输出 160075 框、43s/帧（CPU）。
+        # 我们只需要人，单类 NMS 后 <1s。
+        cls0 = 1.0 / (1.0 + np.exp(-predictions[:, 5]))  # person logit → prob
+        scores0 = obj * cls0
+        valid = scores0 > DET_SCORE_THR
+        if valid.sum() == 0:
             return np.empty((0, 4), dtype=np.float32)
-        final_boxes = dets[:, :4]
-        final_scores = dets[:, 4]
-        final_cls_inds = dets[:, 5]
+        keep = self._nms(boxes_xyxy[valid], scores0[valid], DET_NMS_THR)
+        if len(keep) == 0:
+            return np.empty((0, 4), dtype=np.float32)
+        final_boxes = boxes_xyxy[valid][keep]
+        final_scores = scores0[valid][keep]
         isscore = final_scores > DET_FINAL_THR
-        iscat = final_cls_inds == 0  # person
-        mask = isscore & iscat
-        boxes = final_boxes[mask]
+        boxes = final_boxes[isscore]
         if len(boxes) == 0:
             return np.empty((0, 4), dtype=np.float32)
         # 按置信度排序，取最高分的人（score 比面积更可靠）
-        boxes = boxes[np.argsort(-final_scores[mask])]
+        boxes = boxes[np.argsort(-final_scores[isscore])]
         return boxes
 
     @staticmethod
