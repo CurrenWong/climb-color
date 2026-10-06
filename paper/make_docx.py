@@ -14,7 +14,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
 BASE = Path(__file__).parent
-SRC = BASE / "main.md"
+SRC = BASE / (sys.argv[2] if len(sys.argv) > 2 else "main.md")
 OUT = BASE / (sys.argv[1] if len(sys.argv) > 1 else "climbing_route_color_paper.docx")
 
 CJK = '微软雅黑'
