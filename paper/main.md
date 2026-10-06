@@ -683,7 +683,8 @@ and white holds that would matter on a harder set.
 
 ### 5.3 EdgeSAM limitations on small and occluded holds
 
-Two single-image cases remain unsolved (Fig. 5).  In image 6 the route
+Two single-image cases remain unsolved (Fig. 5; see
+`paper/fig5_failure_cases.jpg`).  In image 6 the route
 hold is a small yellow hold at the far end of a predominantly white
 wall; EdgeSAM's encoder features decay at this spatial scale and all
 four candidate masks latch onto the white wall instead, yielding white

@@ -85,3 +85,5 @@ ENV/
 $null
 # commit message scratch files
 _commit_msg*.txt
+# regenerable docx export (paper/make_docx.py)
+paper/*.docx
