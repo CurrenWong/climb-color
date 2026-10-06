@@ -178,7 +178,9 @@ current route.
 
 ### 3.1 Pipeline overview
 
-[Fig. 1: see paper/fig1_pipeline.png]
+[Fig. 1 — pipeline overview: person mask + pose → EdgeSAM prompt →
+ candidate selection → pixel voting → ring correction → cross-frame
+ aggregation.  See `paper/fig1_pipeline.png`.]
 
 The pipeline has six stages.  An input frame `(W, H, 3)` is processed as:
 
@@ -358,6 +360,12 @@ place we use external knowledge (the line boundaries are given as input).
 
 ### 3.7 Person-Bbox-Adaptive Box (innovation 4)
 
+[Fig. 4 — before/after comparison on 3O wall_04 line1 frame 0105 s:
+with a fixed 160-px box the R_hand candidate set contains a distant red
+hold scoring 0.806 (area 14574) and wins; with the adaptive 128-px box
+the nearby white hold scores 0.881 and wins.  See
+`paper/fig4_box_adaptive.jpg`.]
+
 The box half must satisfy two competing constraints:
 
 * **Large enough** to contain the hold that the endpoint is on.  A small
@@ -408,7 +416,8 @@ while moving through a route.
   truth, else 0.  Computed over all 10 walls.
 * **Frame-level accuracy**: 1 if the per-frame 4-endpoint plurality matches
   ground truth.  Reported for context only; high variance per frame.
-* **Latency**: per-frame wall-clock time on CPU (Intel Xeon).
+* **Latency**: per-frame wall-clock time on CPU (Intel Core i5-13500H).
+  Full breakdown in Table 5 (appendix).
 
 ### 4.3 Main result (Table 1)
 
@@ -602,6 +611,30 @@ repository.
 > Entries 9-10 are representative of the sparse climbing-specific literature;
 > the absence of a standard benchmark is one reason we release wall-level
 > annotations together with our videos.
+
+---
+
+## Table 5 (appendix): Per-frame latency breakdown
+
+CPU: Intel Core i5-13500H (12C/16T), PyTorch + onnxruntime CPU execution
+providers, single-threaded preprocessing.
+
+| Component | Time | Note |
+|---|---|---|
+| DWPose — yolox_l person detection | 3.39 s | after single-class NMS fix (was 34.5 s with 80-class NMS) |
+| DWPose — RTMPose 133-keypoint | 0.34 s | 288×384 input |
+| YOLO26m person mask | 1.79 s | Ultralytics, CPU |
+| EdgeSAM set_image (encoder) | 1.07 s | per frame |
+| EdgeSAM segment_endpoint × 4 | 2.40 s | 0.54-0.66 s each (includes pixel vote + ring statistics) |
+| Post-processing (ring, main component, bins) | <0.1 s | pure numpy |
+| **Total** | **~7.6 s** | |
+
+GPU estimate (not measured): DWPose ~0.4 s + YOLO ~0.2 s + EdgeSAM ~0.15 s
+≈ **~0.8 s/frame**.
+
+The two components with measurable accuracy impact — the adaptive box and
+the ring black vote — add essentially zero latency (one bbox computation
+and one numpy pass over ~13k pixels respectively).
 
 ---
 

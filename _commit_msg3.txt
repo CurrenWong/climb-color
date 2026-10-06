@@ -1,0 +1,28 @@
+﻿论文 Fig 4 (adaptive box 对比) + 图表编号统一
+
+## 1. Fig 4 — person-bbox-adaptive box 的动机证据
+paper/fig4_box_adaptive.jpg (make_fig4.py) 上下对比:
+  (a) box = 160 px (fixed): R_hand 候选集含远处红 hold (score 0.806,
+      area 14574) -> 最高分胜出 -> 判红 (WRONG)
+  (b) box = 128 px (自适应, person bbox 短边 x 0.6): 手边白 hold
+      score 0.881 胜出 -> 判白 (CORRECT)
+场景: 3O wall_04 line1 frame 0105s (真值白)。
+复现: dbg_line1_frame02_candidates.py 跑两次 (FIXED_BOX=0/1)。
+素材: debug/fig4_src_box{160,128}.jpg
+
+至此 5 张论文图齐备:
+  Fig 1 pipeline / Fig 2 prompt 几何 / Fig 3 ring 黑修正 /
+  Fig 4 adaptive box 对比 / Fig 5 失败案例
+
+## 2. 图表编号统一 (paper/main.md)
+- Fig 1 引用格式统一为 [Fig. N — <描述>. See <文件>.]
+- Fig 4 引用插入 3.7 节开头
+- 新增 Table 5 (appendix): per-frame latency breakdown
+  (DWPose detect 3.39s / RTMPose 0.34s / YOLO26m 1.79s /
+   EdgeSAM set_image 1.07s + 4 端点 2.40s / post <0.1s, total ~7.6s;
+   GPU 估算 ~0.8s/frame; 强调自适应 box 与 ring 修正延迟≈0)
+- 4.2 Metrics 的 latency 项引用 Table 5
+- 全库核对: Fig. 1-5 / Table 1-5 编号连续, 引用格式统一
+
+验证: make_fig4.py 可重跑; 两次 dbg 运行的候选 score/area 与
+最早诊断记录一致 (box=160 时 R_hand 选红 hold 0.806/14574)
