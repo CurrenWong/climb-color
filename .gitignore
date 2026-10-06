@@ -80,3 +80,5 @@ ENV/
 
 # cmd 2>nul 误生成的空文件
 $null
+# commit message scratch files
+_commit_msg*.txt
