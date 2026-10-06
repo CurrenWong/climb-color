@@ -1,0 +1,120 @@
+{
+  "3O_wall_01": {
+    "5s": {
+      "n_frames": 8,
+      "votes_total": 30,
+      "pred": "蓝",
+      "top": "10/30",
+      "share": 0.3333333333333333,
+      "runner_up": "橙",
+      "runner_up_n": 8,
+      "margin": 2,
+      "bootstrap_acc": 0.663,
+      "dist": {
+        "蓝": 10,
+        "橙": 8,
+        "黑": 4,
+        "黄": 3,
+        "红": 3
+      }
+    },
+    "1s": {
+      "n_frames": 36,
+      "votes_total": 132,
+      "pred": "蓝",
+      "top": "36/132",
+      "share": 0.2727272727272727,
+      "runner_up": "橙",
+      "runner_up_n": 30,
+      "margin": 6,
+      "bootstrap_acc": 0.7065,
+      "dist": {
+        "蓝": 36,
+        "橙": 30,
+        "黑": 25,
+        "黄": 15,
+        "白": 11
+      }
+    }
+  },
+  "3O_wall_04_line2_pink": {
+    "5s": {
+      "n_frames": 4,
+      "votes_total": 15,
+      "pred": "粉红",
+      "top": "4/15",
+      "share": 0.26666666666666666,
+      "runner_up": "黑",
+      "runner_up_n": 3,
+      "margin": 1,
+      "bootstrap_acc": 0.705,
+      "dist": {
+        "粉红": 4,
+        "黑": 3,
+        "红": 3,
+        "橙": 2,
+        "紫": 2
+      }
+    },
+    "1s": {
+      "n_frames": 16,
+      "votes_total": 50,
+      "pred": "粉红",
+      "top": "26/50",
+      "share": 0.52,
+      "runner_up": "红",
+      "runner_up_n": 8,
+      "margin": 18,
+      "bootstrap_acc": 1.0,
+      "dist": {
+        "粉红": 26,
+        "红": 8,
+        "橙": 5,
+        "黑": 5,
+        "白": 3
+      }
+    }
+  },
+  "3O_wall_05": {
+    "5s": {
+      "n_frames": 7,
+      "votes_total": 24,
+      "pred": "绿",
+      "top": "8/24",
+      "share": 0.3333333333333333,
+      "runner_up": "黑",
+      "runner_up_n": 6,
+      "margin": 2,
+      "bootstrap_acc": 0.682,
+      "dist": {
+        "绿": 8,
+        "黑": 6,
+        "蓝": 4,
+        "黄": 2,
+        "青": 2
+      }
+    },
+    "1s": {
+      "n_frames": 31,
+      "votes_total": 103,
+      "pred": "绿",
+      "top": "42/103",
+      "share": 0.4077669902912621,
+      "runner_up": "黑",
+      "runner_up_n": 23,
+      "margin": 19,
+      "bootstrap_acc": 0.985,
+      "dist": {
+        "绿": 42,
+        "黑": 23,
+        "蓝": 19,
+        "粉红": 4,
+        "白": 4
+      }
+    }
+  },
+  "_joint": {
+    "5s": 0.318,
+    "1s": 0.6815
+  }
+}

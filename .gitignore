@@ -74,6 +74,9 @@ ENV/
 .env
 .env.local
 *.log
+# evidence logs referenced by paper/bootstrap_margin.py & bootstrap_compare.py
+!dwpose_exp/_verify_full.log
+!dwpose_exp/dense_sampling.log
 
 # Session-local task notes (Coding Mode)
 *_TODO.md

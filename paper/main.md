@@ -32,7 +32,11 @@ baselines evaluated on the same walls.  Because five of the ten walls
 are decided by ≤2 votes, we additionally report a frame-level bootstrap
 that puts the expectation at **8.2/10** and makes the 10/10 single run
 itself only 12 % likely — the honest reading is that the pipeline is
-reliable but not yet saturated.  Ablations show the
+reliable but not yet saturated.  Re-extracting the three weakest walls at
+1 s intervals (4.4× more frames) raises the mean margin from +1.7 to
++14.3 votes and the mean bootstrap accuracy from 68 % to 90 %: most of the
+fragility is a sampling artefact, while one wall barely moves, exposing a
+systematic endpoint-drift bias that density cannot fix.  Ablations show the
 person-bbox-adaptive box is the single most valuable component (−2 walls
 without it), followed by the ring black vote (−1); the two remaining
 components change per-endpoint votes but not wall-level outcomes on this
@@ -589,7 +593,43 @@ case is 3O_wall_04_line2_pink (margin +1, bootstrap 71 %), whose
 runner-up is the red hold the same climber grabs a second earlier in the
 timeline.  Denser temporal sampling, per-endpoint trajectory smoothing,
 or a climbing-specific grasp detector would all attack this variance
-directly; we leave them to future work.
+directly.  We test the first of these below.
+
+### 4.8 Sampling density (Table 7)
+
+If tight margins are caused by sparse sampling — only 4-9 frames per wall,
+so a handful of noisy votes decides the plurality — then sampling more
+densely should widen them.  We tested this directly: the three
+lowest-bootstrap walls were re-extracted from the source video at **1 s**
+intervals (4.4× more frames) and pushed through the identical pipeline and
+the identical bootstrap.
+
+**Table 7. Effect of sampling density on the three weakest walls.**
+
+| Wall | Frames (5 s → 1 s) | Margin (5 s → 1 s) | Bootstrap acc. (5 s → 1 s) |
+|---|---|---|---|
+| 3O_wall_01 | 8 → 36 | +2 → +6 | 66.3 % → 70.7 % |
+| 3O_wall_04_line2_pink | 4 → 16 | +1 → **+18** | 70.5 % → **100.0 %** |
+| 3O_wall_05 | 7 → 31 | +2 → **+19** | 68.2 % → **98.5 %** |
+| **Mean** | 6.3 → 27.7 | **+1.7 → +14.3** | **68.3 % → 89.7 %** |
+| P(all three walls correct) | 31.8 % → **68.2 %** | | |
+
+**Findings.**  Denser sampling raises the mean margin by almost an order of
+magnitude and nearly doubles the joint probability of getting all three
+walls right.  Two walls become effectively deterministic (100 % and
+98.5 %), which confirms that their 5 s results were a sampling artefact
+rather than a colour-classification failure.
+
+The exception is the most informative result.  3O_wall_01 improves only
+marginally (66.3 % → 70.7 %) despite 4.5× more frames.  Its vote
+distribution stays bimodal even at 1 s (blue 36 vs orange 30), meaning the
+endpoint-anchored masks land on the orange hold for a large minority of
+frames no matter how densely we sample.  That is a **systematic** bias —
+endpoint drift, exactly the mechanism of Section 5.1 — not noise.
+Sampling density removes variance; it cannot remove bias.  Distinguishing
+the two is what makes this experiment worth reporting, and it identifies
+the bias case as the one that genuinely requires a better grasp detector
+rather than more data.
 
 ---
 
@@ -680,11 +720,13 @@ vote, at the cost of additional supervision we did not have.
 The limitations surfaced above can be stated compactly, roughly in order
 of how much they constrain the claims:
 
-1. **Statistical.**  Wall-level accuracy is measured on ten walls with
-   ~2.5 endpoint votes per frame.  The single-run 10/10 has a bootstrap
-   expectation of 8.2/10 (Section 4.7).  A larger benchmark — hundreds of
-   walls across many gyms — is needed before this should be quoted as a
-   rate rather than a case study.
+1. **Statistical.**  Wall-level accuracy is measured on ten walls.  The
+   single-run 10/10 has a bootstrap expectation of 8.2/10 (Section 4.7),
+   and the dense-sampling test (Section 4.8) shows that much of that
+   fragility is attributable to the 5 s sampling interval rather than to
+   the method itself.  A larger benchmark — hundreds of walls across many
+   gyms — is still needed before this should be quoted as a rate rather
+   than a case study.
 2. **Causal.**  The dominant error source is endpoint drift (30-50 px),
    and no post-processing step fully removes it; the ring correction
    patches one of its consequences and the adaptive box another.
