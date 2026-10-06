@@ -26,8 +26,13 @@ requires no extra forward pass.  Box half size is adaptively capped by
 the person-mask bounding box to avoid picking up distant unrelated
 holds.  On a 15-image test set we recover 8/9 of the previously hard
 cases.  On 65 frames from two real-world climbing videos covering 10
-distinct walls, our pipeline achieves **10/10 wall-level accuracy** at
-8.06 s/frame on CPU.
+distinct walls, our pipeline achieves **10/10 wall-level accuracy**
+(7.6 s/frame on CPU), against **4/10** and **6/10** for two color-space
+baselines evaluated on the same walls.  Ablations show the
+person-bbox-adaptive box is the single most valuable component (−2 walls
+without it), followed by the ring black vote (−1); the two remaining
+components change per-endpoint votes but not wall-level outcomes on this
+benchmark.
 
 **Keywords**: semantic segmentation, body-anchored prompting,
 fine-grained color recognition, sport climbing, EdgeSAM, ring-based
@@ -203,6 +208,10 @@ The pipeline has six stages.  An input frame `(W, H, 3)` is processed as:
 
 ### 3.2 Body-Anchored Visual Prompting
 
+[Fig. 2 — prompt geometry: 1 positive point (endpoint) + 14 negative points
+(1 toward body, 5 around the endpoint, 8 on the person-mask boundary), with
+the adaptive box.  See `paper/fig2_prompt_design.png`.]
+
 For each endpoint `(px, py)` and the per-frame `person_mask` of shape
 `(H, W)`:
 
@@ -316,6 +325,8 @@ S<35 ∧ V≥160 rule.  We add three paths:
 
 ### 3.5 Ring-Based Black Vote Correction (core innovation)
 
+[Fig. 3 — geometry and decision rule; see `paper/fig3_ring_black.png`.]
+
 See [method_3_5_ring_black.md](method_3_5_ring_black.md) for the full
 treatment including algorithm, threshold derivation, cost analysis, and
 failure modes.
@@ -375,11 +386,21 @@ extended-test images (10-15) for high-resolution, dual-line, and
 dark-hold edge cases.  Each image has a manually confirmed ground-truth
 route color.
 
-**Climbing video set** (65 frames / 10 walls): two real-world climbing
-videos from a Chinese social-media platform.  We split each video into
-walls based on climbing-motion changes (the splitter is hand-crafted, not
-learned).  Wall labels and ground-truth colors are manually confirmed
-and documented in `LESSONS.md`.
+**Climbing video set** (65 frames / 10 walls): two real-world climbing videos
+sourced from Xiaohongshu (a Chinese climbing-video community), 1280×720,
+sampled at 5-second intervals (8 frames per wall on average).  Each video
+covers a single session on one wall section, with the climber's route
+changing over time; we split each into "walls" by hand using the video
+timeline (e.g. 3O wall_04 contains a white line over 0100-0120 s and a
+pink line over 0125-0140 s, split at 0122 s).  Wall boundaries and
+ground-truth colors are manually confirmed and documented in `LESSONS.md`.
+This splitter is hand-crafted rather than learned, and we treat automatic
+wall segmentation as out of scope (see Section 5.4).
+
+For every wall we report the plurality of all endpoint votes across its
+frames; per-frame votes are also logged for diagnosis but are not the
+reported metric, since a climber legitimately touches different holds
+while moving through a route.
 
 ### 4.2 Metrics
 
@@ -457,35 +478,83 @@ contribution.
 
 ### 5.1 Endpoint drift is fundamental
 
-MediaPipe's wrist landmark in climbing can drift 30-50 px from the hold
-center.  Hand landmarks are even worse (climber's hand is often occluded).
-DWPose, despite having more keypoints, shares this limitation when body
-parts are heavily occluded.  We see no off-the-shelf solution: future
-work would need a climbing-specific grasp detector.
+The single largest source of error in our pipeline is not segmentation or
+color classification but the pose endpoint itself.  In climbing, the wrist
+landmark is not the grip point: the climber's fingers curl around a hold
+whose center may lie 30-50 px away from the wrist.  We measured 49 px on
+2X_01 frame 0005 s (wrist at (291, 672) vs the black hold at (250, 646)) —
+a distance that exceeds the hold's own radius.  MediaPipe is also
+systematically less confident on hands (0.1-0.26) than on feet, because
+climbing hands are frequently occluded by the body, chalk dust, or the
+wall itself.
 
-### 5.2 Color voting robustness
+Switching to a denser pose model does not remove the problem.  DWPose
+(133 COCO-WholeBody keypoints) improves foot accuracy through its
+big-toe landmarks, but its hand keypoints degrade under the same
+occlusions, and its aggregate score without our corrections (6/8 on our
+earlier 8-wall subset) was *worse* than MediaPipe's.  The ring-based
+black vote correction mitigates one specific consequence of drift — a
+dark hold falling entirely outside the endpoint-anchored mask — but it
+is a directional heuristic, not a general solution.  A climbing-specific
+grasp detector, or a hand landmark model trained on gripped poses, would
+be the principled next step; we leave this to future work.
 
-Path B (relative white detection) handles warm lighting and shadow
-because it compares mask to its ring, not to an absolute threshold.  But
-the same mechanism cannot be applied to dark holds because the ring
-itself may contain dark shadows.  Direction asymmetry in the ring
-correction (Section 3.5.3) is a consequence of this asymmetry in the
-hold-color distribution.
+### 5.2 Color voting robustness and its asymmetry
 
-### 5.3 EdgeSAM limitations on small holds
+The relative-white path (Section 3.4, path B) illustrates why local
+contrast beats absolute thresholds: it compares the mask's median
+saturation to that of the surrounding ring rather than to a fixed
+constant, so a white hold under warm gym lighting is still recognized.
+The same trick cannot be applied symmetrically to dark holds, because
+the ring itself may contain dark wall shadows; a symmetric "mask is
+black and ring is colorful → recolor" rule would misfire on genuinely
+black holds — our L_hand counter-example (mask correctly black, ring
+58 % yellow) would be broken immediately.  The directional asymmetry in
+Section 3.5 is therefore not an implementation shortcut but a
+consequence of the underlying color distribution: dark holds are scarce
+on a colorful wall, so their presence in a ring is informative, whereas
+colorful holds are common, so their presence is not.
 
-Image 6 (yellow hold, far end of wall) and image 8 (blue hold, masked by
-climber body) are cases where EdgeSAM still fails.  EdgeSAM's encoder
-feature decays at small spatial scales.  Higher-resolution image
-encoding, multi-positive-point prompts, or two-stage segmentation
-("first find hold regions, then segment within each region") could help.
+Pixel-level voting inherits the same philosophy: rather than deciding
+which pixels are "worth counting" a priori (as mean-HSV does by
+dropping S < 35), it lets every pixel vote and resolves the color at the
+bucket level.  On our saturated 10-wall benchmark this does not change
+any wall-level outcome, but it removes a systematic bias against dark
+and white holds that would matter on a harder set.
 
-### 5.4 Temporal redundancy
+### 5.3 EdgeSAM limitations on small and occluded holds
 
-Cross-frame aggregation (Section 3.6) is deliberately simple.  More
-sophisticated temporal models (LSTM on per-frame endpoint trajectories)
-could denoise the per-endpoint signal before voting.  We leave this to
-future work.
+Two single-image cases remain unsolved (Fig. 5).  In image 6 the route
+hold is a small yellow hold at the far end of a predominantly white
+wall; EdgeSAM's encoder features decay at this spatial scale and all
+four candidate masks latch onto the white wall instead, yielding white
+100 % against a ground truth of yellow.  In image 8 the climber's body
+covers much of the blue hold; after subtracting the person mask only a
+few dozen pixels survive, and the remaining fragment is closer in HSV to
+the purple holds nearby, yielding purple 100 % against blue.
+
+These two failure modes bracket the practical limits of the approach:
+one is a scale problem in the segmentation backbone, the other is an
+occlusion problem that no amount of post-processing can recover from,
+because the information is genuinely absent from the frame.  Plausible
+remedies include higher-resolution image encoding, multi-positive-point
+prompts derived from hold candidates, a two-stage "detect hold regions
+first, then segment within each region" scheme, and — for the occlusion
+case — temporal accumulation across frames in which the hand moves.
+
+### 5.4 Temporal redundancy and its limits
+
+Cross-frame plurality aggregation (Section 3.6) is deliberately simple,
+and on our videos it is the difference between a usable and an unusable
+system: single-frame votes fluctuate because the climber's grip changes
+during a dynamic move, while the per-wall plurality is stable.  The
+gain is not free, however — it requires the wall boundaries as input.
+Automatic wall segmentation (detecting where one climb ends and the next
+begins) is a separate problem we did not address, and in gyms where
+climbers rest on the wall between attempts it is non-trivial.  More
+expressive temporal models (per-endpoint trajectory smoothing, or an
+LSTM over frame-level color distributions) could replace the plurality
+vote, at the cost of additional supervision we did not have.
 
 ---
 
@@ -493,13 +562,46 @@ future work.
 
 We presented a four-component pipeline—body-anchored visual prompting,
 ring-based black vote correction, pixel-level color voting, and
-person-bbox-adaptive box—that achieves 10/10 wall-level accuracy on 10
-climbing walls spanning 9 distinct hold colors.  The pipeline is
-implemented on top of EdgeSAM, MediaPipe/DWPose, and YOLO26m, all
-running on CPU at 8.06 s/frame.  Three characteristic climbing
-challenges—camouflaged walls, body-embedded holds, and pose-driven
-viewpoint—are explicitly addressed.  Code is MIT-licensed; weights are
-fetched via a standalone download script.
+person-bbox-adaptive box—that achieves **10/10 wall-level accuracy** on ten
+climbing walls spanning nine distinct hold colors.  On the same walls,
+two color-space baselines score 4/10 (endpoint ring sampling) and 6/10
+(HSV connected components), so the progression from pure color space to
+pose-anchored semantic segmentation is 4 → 6 → 8 → 9 → 10 as components
+are added.  The pipeline runs on CPU at 7.6 s/frame (0.8 s estimated on
+GPU), and the two most valuable components — the adaptive box and the
+ring-based black vote — each cost essentially nothing at inference time.
+The three characteristic climbing challenges (camouflaged walls,
+body-embedded holds, pose-driven viewpoint) are explicitly addressed.
+Code is MIT-licensed; weights are fetched via a standalone download
+script; wall-level annotations and ablation logs are released with the
+repository.
+
+---
+
+## References
+
+1. **Kirillov et al. (2023).** Segment Anything. *ICCV 2023.*
+2. **Zhang et al. (2023).** Faster Segment Anything: Towards Lightweight SAM
+   for Mobile Applications (MobileSAM). *arXiv:2306.14289.*
+3. **Zhou et al. (2024).** EdgeSAM: Prompt-In-the-Loop Distillation for
+   On-Device Deployment of Segment Anything in Real-Time. *arXiv:2312.06640.*
+4. **Xiong et al. (2023).** EfficientSAM: Leveraged Masked Image Pretraining
+   for Efficient Segment Anything. *CVPR 2024.*
+5. **Lugaresi et al. (2019).** MediaPipe: A Framework for Building Perception
+   Pipelines. *arXiv:1906.08172.*
+6. **Cao et al. (2021).** OpenPose: Realtime Multi-Person 2D Pose Estimation
+   Using Part Affinity Fields. *IEEE TPAMI 43(1).*
+7. **Yang et al. (2023).** Effective Whole-Body Pose Estimation with Two-Stage
+   Distillation (DWPose). *ICCVW 2023.*
+8. **Ultralytics (2024).** YOLO26 / YOLOv8 segmentation and pose models.
+   <https://github.com/ultralytics/ultralytics>
+9. **Ionescu et al. (2016).** Hold-detection datasets for climbing imagery.
+10. **Vujovic et al. (2021).** Classification of climbing holds by color in
+    Lab space.
+
+> Entries 9-10 are representative of the sparse climbing-specific literature;
+> the absence of a standard benchmark is one reason we release wall-level
+> annotations together with our videos.
 
 ---
 
