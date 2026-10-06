@@ -1,0 +1,46 @@
+{
+  "mean": {
+    "detect": 2.757867733327051,
+    "pose": 0.4046612666764607,
+    "person_mask": 1.7918740666743058,
+    "edge_encode": 1.0173492333269678,
+    "endpoints": 1.8626677333571326,
+    "total": 7.834420033361918,
+    "n_seg": 3.3333333333333335
+  },
+  "raw": [
+    {
+      "detect": 2.9457083000452258,
+      "pose": 0.4809380000224337,
+      "person_mask": 1.8744717000517994,
+      "edge_encode": 1.0953850999940187,
+      "endpoints": 2.2688831000123173,
+      "n_seg": 4,
+      "n_cand": 4,
+      "total": 8.665386200125795
+    },
+    {
+      "detect": 2.723383499949705,
+      "pose": 0.3658072000253014,
+      "person_mask": 1.7322366000153124,
+      "edge_encode": 0.9732813999871723,
+      "endpoints": 1.1121525000198744,
+      "n_seg": 2,
+      "n_cand": 2,
+      "total": 6.9068611999973655
+    },
+    {
+      "detect": 2.6045113999862224,
+      "pose": 0.367238599981647,
+      "person_mask": 1.7689138999558054,
+      "edge_encode": 0.9833811999997124,
+      "endpoints": 2.2069676000392064,
+      "n_seg": 4,
+      "n_cand": 4,
+      "total": 7.931012699962594
+    }
+  ],
+  "n_timed": 3,
+  "wall": "2XRo7VbPgTe_wall_01_known_IMG_20260808_193753",
+  "note": "CPU Intel Core i5-13500H; warmup frame excluded; total = sum of stages (excludes I/O and drawing)"
+}

@@ -27,8 +27,12 @@ the person-mask bounding box to avoid picking up distant unrelated
 holds.  On a 15-image test set we recover 8/9 of the previously hard
 cases.  On 65 frames from two real-world climbing videos covering 10
 distinct walls, our pipeline achieves **10/10 wall-level accuracy**
-(7.6 s/frame on CPU), against **4/10** and **6/10** for two color-space
-baselines evaluated on the same walls.  Ablations show the
+(7.2 s/frame on CPU), against **4/10** and **6/10** for two color-space
+baselines evaluated on the same walls.  Because five of the ten walls
+are decided by ≤2 votes, we additionally report a frame-level bootstrap
+that puts the expectation at **8.2/10** and makes the 10/10 single run
+itself only 12 % likely — the honest reading is that the pipeline is
+reliable but not yet saturated.  Ablations show the
 person-bbox-adaptive box is the single most valuable component (−2 walls
 without it), followed by the ring black vote (−1); the two remaining
 components change per-endpoint votes but not wall-level outcomes on this
@@ -148,10 +152,26 @@ foreground and the background, which fails for camouflaged walls.
 The Segment Anything Model (SAM) [Kirillov 2023] introduced
 prompt-based segmentation with a foundation model.  Subsequent work
 distilled SAM into edge-deployable variants: MobileSAM [Zhang 2023],
-EdgeSAM [Zhou 2024], EfficientSAM [Xiong 2023].  EdgeSAM in particular
-runs at 37 FPS on iPhone 14 with 9.6 M parameters, making it a natural
-choice for interactive per-endpoint inference.  To our knowledge, no
-prior work applies SAM-family segmentation to sport climbing.
+FastSAM, EdgeSAM [Zhou 2024], and EfficientSAM [Xiong 2023].  EdgeSAM in
+particular runs at 37 FPS on iPhone 14 with 9.6 M parameters, making it a
+natural choice for interactive per-endpoint inference.
+
+We did not pick a backbone on reputation.  During development we
+evaluated FastSAM, MobileSAMV2, and EdgeSAM as the per-endpoint mask
+generator under our prompt scheme (Section 3.2).  FastSAM's point-prompt
+masks were too coarse to isolate a single hold (2/9 → 3/9 on our
+single-image test set), which is why we abandoned the "segment the hold
+entity directly" route in favour of endpoint-anchored prompting.
+MobileSAMV2 produced usable masks and reached comparable wall-level
+accuracy inside the full pipeline, but cost 6.8 s/frame against
+EdgeSAM's 1.07 s encoder + 2.40 s for four endpoint queries (~3.5 s).
+EdgeSAM gave the best accuracy–latency trade-off and was adopted.
+
+To our knowledge, no prior work applies SAM-family segmentation to sport
+climbing, and no prior work uses pose keypoints as the *segmentation
+prompt* — the closest analogue is pose-conditioned human parsing, where
+keypoints guide part segmentation of a person rather than of an
+interacted-with object.
 
 ### 2.3 Pose estimation
 
@@ -175,6 +195,40 @@ current route.
 ---
 
 ## 3. Method
+
+### 3.0 Notation and constants
+
+All symbols used below are collected here, together with the numeric
+constants of the full pipeline.  Constants were fixed once on a
+development subset and never re-tuned per wall.
+
+| Symbol | Meaning |
+|---|---|
+| `H`, `W` | frame height and width (720, 1280 in our videos) |
+| `I` | input frame, BGR |
+| `M_person` | binary person mask from YOLO26m |
+| `p = (p_x, p_y)` | a pose endpoint: one wrist or one ankle |
+| `K` | the four endpoints {L_hand, R_hand, L_foot, R_foot} |
+| `s_p` | keypoint confidence of endpoint `p` |
+| `B_p` | square sampling box centred on `p`, half-size `h_p` |
+| `h_p` | adaptive box half-size (Eq. 1) |
+| `c_p` | colour label assigned to endpoint `p` |
+| `r_p` | ring black-vote ratio at endpoint `p` |
+| `w` | a wall: the ordered frame range assigned to one route |
+| `ρ(c, w)` | share of endpoint votes equal to colour `c` in wall `w` |
+
+| Constant | Value | Role |
+|---|---|---|
+| `BOX_HALF_HEIGHT_DIV` | 20 | base box half = `H / 20` |
+| `BOX_HALF_MIN` / `MAX` | 50 / 250 | adaptive box bounds |
+| `BOX_PERSON_SHORT_RATIO` | 0.6 | box half ≤ 0.6 × person-bbox short side |
+| `NEG_RING_RADIUS` / `NEG_RING_N` | 35 px / 5 | negative points around the endpoint |
+| `N_BODY` / `N_EDGE` | 1 / 8 | negative points toward body / on person edge |
+| `RING_BLACK_D1` / `D2` | 20 px / 70 px | ring annulus inner / outer radius |
+| `RING_BLACK_RATIO_MIN` | 0.18 | ring black-share threshold (Eq. 2) |
+| `RING_BLACK_MIN_PIXELS` | 100 | minimum ring size for a valid vote |
+| `V_BLACK` / `S_BLACK` | 60 / 35 | "dark pixel" tests in HSV |
+| `S_LOW` | 35 | low-saturation cut in the mean-HSV baseline |
 
 ### 3.1 Pipeline overview
 
@@ -425,12 +479,14 @@ while moving through a route.
 |---|---|---|
 | HSV-only (endpoint ring sampling, no hold segmentation) | 4/10 | ~1 s |
 | v1 detect_holds (HSV connected components + bbox match) | 6/10 | ~1.2 s |
-| EdgeSAM + DWPose, no ring, no adaptive box | 8/10 | 8.0 s |
-| + Ring black vote correction | 9/10 | 9.3 s* |
-| **+ Person-bbox-adaptive box (full)** | **10/10** | 7.6 s |
+| EdgeSAM + DWPose, no ring, no adaptive box | 8/10 | 7.2 s |
+| + Ring black vote correction | 9/10 | 7.2 s |
+| **+ Person-bbox-adaptive box (full)** | **10/10** | 7.2 s |
 
-\* Latency differences are CPU noise; ring and box-adaptation cost ≈0
-(ring = pure numpy statistics over ~13k pixels; adaptive box = one bbox computation).
+\* Latency is the full-set mean (7.17 s/frame over 65 frames); per-stage
+breakdown in Table 5.  Ring and box-adaptation cost ≈0 (ring = pure numpy
+statistics over ~13k pixels; adaptive box = one bbox computation), so the
+last three rows share the same latency within measurement noise.
 
 **Progression**: 4/10 → 6/10 → 8/10 → 9/10 → 10/10.  The two color-space
 baselines fail on exactly the cases the paper targets: dark holds on a colorful
@@ -438,6 +494,12 @@ wall (2X_01), low-saturation white holds (line1), pink-vs-red confusion
 (line2), and cyan-vs-green confusion (3O_05).  Comparing the two baselines
 also isolates the value of hold segmentation itself (+2 walls from
 HSV-only to detect_holds).
+
+The 10/10 figure is a **single-run** result; five of the ten walls are
+decided by a margin of two votes or less, and Section 4.7 quantifies how
+much of it is structural (bootstrap expectation 8.2/10).  We report both
+numbers throughout and do not present the saturated single run as
+evidence of a solved problem.
 
 ### 4.4 Single-image test (Table 2)
 
@@ -480,6 +542,54 @@ contribution.
 | YOLO26-Pose (17 pts) | 5/8 | ~80 % | 0.8 s | ❌ |
 | DWPose (133 pts) | 6/8 (no fix) | ~92 % | 4.2 s | ✅ |
 | DWPose + Ring + Box | **10/10** | ~92 % | 4.2 s | ✅ |
+
+---
+
+### 4.7 Stability of the wall-level result (Table 6)
+
+The full pipeline scores 10/10, but the margin behind five of those ten
+walls is only two votes or fewer (Table 6).  To separate structural
+accuracy from lucky draws we ran a frame-level bootstrap: for each wall
+we resampled its frames with replacement 2000 times, re-aggregated the
+endpoint votes, and took the plurality.
+
+**Table 6. Per-wall detail for the full pipeline, with frame-level
+bootstrap stability.**
+
+| Wall | Truth | Pred | Votes | Share | Runner-up | Margin | Bootstrap acc. |
+|---|---|---|---|---|---|---|---|
+| 2X_wall_01 | black | black | 14/26 | 53.8 % | orange 6 | +8 | 97.4 % |
+| 2X_wall_02 | blue | blue | 19/30 | 63.3 % | orange 2 | +17 | 100.0 % |
+| 2X_wall_03 | pink | pink | 10/23 | 43.5 % | black 6 | +4 | 90.3 % |
+| 2X_wall_04 | cyan | cyan | 7/21 | 33.3 % | orange 5 | +2 | 72.5 % |
+| 3O_wall_01 | blue | blue | 10/30 | 33.3 % | orange 8 | +2 | 65.9 % |
+| 3O_wall_02 | red | red | 13/28 | 46.4 % | black 4 | +9 | 99.9 % |
+| 3O_wall_03 | yellow | yellow | 6/12 | 50.0 % | blue 2 | +4 | 97.2 % |
+| 3O_wall_04_line1 | white | white | 6/16 | 37.5 % | orange 4 | +2 | 61.9 % |
+| 3O_wall_04_line2 | pink | pink | 4/15 | 26.7 % | black 3 | **+1** | 71.0 % |
+| 3O_wall_05 | green | green | 8/24 | 33.3 % | black 6 | +2 | 68.2 % |
+
+**Findings.**  Per-wall bootstrap accuracy averages **82.4 %**, so a
+single run would be expected to get **8.2 / 10** walls right, and the
+probability that all ten walls come out correct in one run is only
+**12.2 %**.  The reported 10/10 therefore contains a substantial
+lucky-draw component concentrated in the five tight walls.
+
+This estimate is deliberately conservative.  Frames within a wall are
+strongly temporally correlated — our sampling interval is 5 s and
+neighbouring frames differ mainly by small climber movements — whereas
+the bootstrap treats frames as exchangeable and thus overstates the
+variance of the plurality vote.  The true stability lies between the
+single-run number (10/10) and the bootstrap expectation (8.2/10); we
+report both rather than the flattering one alone.
+
+The tight walls share a single root cause: endpoint drift occasionally
+lands the sampling point on an adjacent hold (Section 5.1).  The clearest
+case is 3O_wall_04_line2_pink (margin +1, bootstrap 71 %), whose
+runner-up is the red hold the same climber grabs a second earlier in the
+timeline.  Denser temporal sampling, per-endpoint trajectory smoothing,
+or a climbing-specific grasp detector would all attack this variance
+directly; we leave them to future work.
 
 ---
 
@@ -565,6 +675,28 @@ expressive temporal models (per-endpoint trajectory smoothing, or an
 LSTM over frame-level color distributions) could replace the plurality
 vote, at the cost of additional supervision we did not have.
 
+### 5.5 Summary of limitations
+
+The limitations surfaced above can be stated compactly, roughly in order
+of how much they constrain the claims:
+
+1. **Statistical.**  Wall-level accuracy is measured on ten walls with
+   ~2.5 endpoint votes per frame.  The single-run 10/10 has a bootstrap
+   expectation of 8.2/10 (Section 4.7).  A larger benchmark — hundreds of
+   walls across many gyms — is needed before this should be quoted as a
+   rate rather than a case study.
+2. **Causal.**  The dominant error source is endpoint drift (30-50 px),
+   and no post-processing step fully removes it; the ring correction
+   patches one of its consequences and the adaptive box another.
+3. **Scope.**  Wall boundaries are given as input; automatic wall
+   segmentation is not addressed.  The pipeline also assumes a single
+   climber on the wall and a fairly complete pose track.
+4. **Segmentation.**  EdgeSAM fails on very small holds and on holds
+   largely occluded by the climber's body (Fig. 5).  The occlusion case
+   is information-theoretically unrecoverable from the frame alone.
+5. **Hardware.**  All measurements are CPU-only; the GPU figure of
+   0.8 s/frame is extrapolated from component timings, not measured.
+
 ---
 
 ## 6. Conclusion
@@ -572,12 +704,14 @@ vote, at the cost of additional supervision we did not have.
 We presented a four-component pipeline—body-anchored visual prompting,
 ring-based black vote correction, pixel-level color voting, and
 person-bbox-adaptive box—that achieves **10/10 wall-level accuracy** on ten
-climbing walls spanning nine distinct hold colors.  On the same walls,
-two color-space baselines score 4/10 (endpoint ring sampling) and 6/10
-(HSV connected components), so the progression from pure color space to
-pose-anchored semantic segmentation is 4 → 6 → 8 → 9 → 10 as components
-are added.  The pipeline runs on CPU at 7.6 s/frame (0.8 s estimated on
-GPU), and the two most valuable components — the adaptive box and the
+climbing walls spanning nine distinct hold colors, with a frame-level
+bootstrap expectation of 8.2/10 and a 12 % single-run probability of the
+saturated result (Section 4.7).  On the same walls, two color-space
+baselines score 4/10 (endpoint ring sampling) and 6/10 (HSV connected
+components), so the progression from pure color space to pose-anchored
+semantic segmentation is 4 → 6 → 8 → 9 → 10 as components are added.  The
+pipeline runs on CPU at 7.2 s/frame (0.8 s estimated on GPU), and the two
+components with measurable accuracy impact — the adaptive box and the
 ring-based black vote — each cost essentially nothing at inference time.
 The three characteristic climbing challenges (camouflaged walls,
 body-embedded holds, pose-driven viewpoint) are explicitly addressed.
@@ -617,17 +751,24 @@ repository.
 ## Table 5 (appendix): Per-frame latency breakdown
 
 CPU: Intel Core i5-13500H (12C/16T), PyTorch + onnxruntime CPU execution
-providers, single-threaded preprocessing.
+providers.  Stage timings measured on 3 frames of 2X_wall_01 (one warmup
+frame excluded) via `dwpose_exp/dbg_profile_frame.py`; the full-set mean
+is over all 65 frames of the benchmark.
 
 | Component | Time | Note |
 |---|---|---|
-| DWPose — yolox_l person detection | 3.39 s | after single-class NMS fix (was 34.5 s with 80-class NMS) |
-| DWPose — RTMPose 133-keypoint | 0.34 s | 288×384 input |
+| DWPose — yolox_l person detection | 2.76 s | after the single-class NMS fix (see below) |
+| DWPose — RTMPose 133-keypoint | 0.40 s | 288×384 input, top-down |
 | YOLO26m person mask | 1.79 s | Ultralytics, CPU |
-| EdgeSAM set_image (encoder) | 1.07 s | per frame |
-| EdgeSAM segment_endpoint × 4 | 2.40 s | 0.54-0.66 s each (includes pixel vote + ring statistics) |
-| Post-processing (ring, main component, bins) | <0.1 s | pure numpy |
-| **Total** | **~7.6 s** | |
+| EdgeSAM `set_image` (encoder) | 1.02 s | once per frame |
+| EdgeSAM `segment_endpoint` × 4 | 1.86 s | ≈0.56 s each; includes pixel vote + ring statistics |
+| **Sum of components** | **7.83 s** | 3-frame profiling sample (3.3 valid endpoints/frame) |
+| **Full-set mean** | **7.17 s** | 65 frames; frames with fewer valid endpoints are faster |
+
+The single-class NMS fix is worth noting: the vendored ONNX person
+detector originally ran 80-class NMS, costing 34.5 s per frame; skipping
+the per-class loop for our single-person case reduces it to 3.4 s, a
+**12× speedup** on the largest single component.
 
 GPU estimate (not measured): DWPose ~0.4 s + YOLO ~0.2 s + EdgeSAM ~0.15 s
 ≈ **~0.8 s/frame**.

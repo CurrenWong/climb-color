@@ -1,0 +1,78 @@
+{
+  "per_wall": {
+    "2X_wall_01": {
+      "truth": "黑",
+      "pred": "黑",
+      "votes": "14/25",
+      "margin": 8,
+      "bootstrap_acc": 0.974
+    },
+    "2X_wall_02": {
+      "truth": "蓝",
+      "pred": "蓝",
+      "votes": "19/30",
+      "margin": 17,
+      "bootstrap_acc": 1.0
+    },
+    "2X_wall_03": {
+      "truth": "粉红",
+      "pred": "粉红",
+      "votes": "10/22",
+      "margin": 4,
+      "bootstrap_acc": 0.9035
+    },
+    "2X_wall_04": {
+      "truth": "青",
+      "pred": "青",
+      "votes": "7/21",
+      "margin": 2,
+      "bootstrap_acc": 0.725
+    },
+    "3O_wall_01": {
+      "truth": "蓝",
+      "pred": "蓝",
+      "votes": "10/30",
+      "margin": 2,
+      "bootstrap_acc": 0.659
+    },
+    "3O_wall_02": {
+      "truth": "红",
+      "pred": "红",
+      "votes": "13/28",
+      "margin": 9,
+      "bootstrap_acc": 0.999
+    },
+    "3O_wall_03": {
+      "truth": "黄",
+      "pred": "黄",
+      "votes": "6/12",
+      "margin": 4,
+      "bootstrap_acc": 0.972
+    },
+    "3O_wall_04_line1_white": {
+      "truth": "白",
+      "pred": "白",
+      "votes": "6/16",
+      "margin": 2,
+      "bootstrap_acc": 0.619
+    },
+    "3O_wall_04_line2_pink": {
+      "truth": "粉红",
+      "pred": "粉红",
+      "votes": "4/15",
+      "margin": 1,
+      "bootstrap_acc": 0.71
+    },
+    "3O_wall_05": {
+      "truth": "绿",
+      "pred": "绿",
+      "votes": "8/24",
+      "margin": 2,
+      "bootstrap_acc": 0.6825
+    }
+  },
+  "mean_bootstrap_acc": 0.8244,
+  "expected_correct": 8.244,
+  "joint_all_correct": 0.122,
+  "B": 2000
+}
