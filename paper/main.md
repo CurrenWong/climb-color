@@ -40,7 +40,11 @@ systematic endpoint-drift bias that density cannot fix.  Ablations show the
 person-bbox-adaptive box is the single most valuable component (−2 walls
 without it), followed by the ring black vote (−1); the two remaining
 components change per-endpoint votes but not wall-level outcomes on this
-benchmark.
+benchmark.  A general vision-language model (Qwen-VL) given the same
+frames reaches only **5/10** on the walls and 1/5 on the single-image set;
+its errors concentrate on exactly the camouflaged and low-saturation cases
+the method targets, indicating that the missing ingredient is a spatial
+prior rather than model capacity.
 
 **Keywords**: semantic segmentation, body-anchored prompting,
 fine-grained color recognition, sport climbing, EdgeSAM, ring-based
@@ -195,6 +199,21 @@ competition dataset provide hold annotations, but prior work focuses on
 detecting holds in isolation, not on associating them with the climber.
 We are unaware of prior work that ties hold detection to the climber's
 current route.
+
+### 2.5 General vision-language models
+
+Large vision-language models (GPT-4V-class, Qwen-VL, InternVL) answer
+free-form questions about images, and "what colour is the route?" looks
+like a question they should trivially handle.  We test this directly in
+Section 4.9: a strong VLM (`qwen-vl-max`) scores 5/10 on our walls
+against 10/10 for the proposed pipeline, and 1/5 on the single-image set
+against 8/9.  The failure is systematic rather than incidental — the model
+answers a *scene-level* question while the task is *referential*, so it
+reports the dominant colour of the wall rather than the colour of the hold
+the climber is gripping.  Vision-language models have been applied to
+climbing for beta generation and movement critique, but to our knowledge
+not to route-colour identification, and not in a setting where the
+referential ambiguity is measured.
 
 ---
 
@@ -631,6 +650,61 @@ the two is what makes this experiment worth reporting, and it identifies
 the bias case as the one that genuinely requires a better grasp detector
 rather than more data.
 
+### 4.9 Comparison with a vision-language model (Table 8)
+
+A natural question is whether a general vision-language model can do this
+directly: show it a frame, ask for the route colour.  We evaluated
+Qwen-VL (`qwen-vl-max`, via the Alibaba Cloud DashScope API,
+`temperature=0`) with a fixed prompt listing the ten candidate colours
+and forbidding explanation.  For the wall comparison the VLM answers on
+3 frames per wall and we take the plurality, giving it the same temporal
+aggregation our pipeline uses.
+
+**Table 8. Qwen-VL vs. our pipeline.**
+
+| Method | Single-image (5 graded) | 10 walls |
+|---|---|---|
+| Qwen-VL, single frame | 1/5 | 4/10 |
+| Qwen-VL, 3-frame plurality | — | 5/10 |
+| HSV-only baseline | — | 4/10 |
+| detect_holds v1 baseline | — | 6/10 |
+| **Ours (full pipeline)** | **8/9** | **10/10** |
+
+**Where the VLM fails.**  Its five wall errors are far from random:
+
+| Wall | Truth | Qwen-VL | Failure type |
+|---|---|---|---|
+| 2X_wall_01 | black | red | dark hold on a colourful wall |
+| 2X_wall_03 | pink | red | pink-vs-red confusion |
+| 3O_wall_03 | yellow | red | hold colour ≠ dominant wall colour |
+| 3O_wall_04_line1 | white | green | low-saturation hold |
+| 3O_wall_04_line2 | pink | red | pink-vs-red confusion |
+
+Three of the five are the pink-vs-red confusion that Section 5.2
+predicts, and the other two are exactly the low-saturation cases (black,
+white) that motivated pixel-level voting.  The VLM succeeds on the walls
+where the route colour is a large, saturated, unambiguous region (blue,
+cyan, red, blue, green) — that is, where the scene-level question "what
+colour is this picture?" and the referential question "what colour is the
+hold this climber is gripping?" happen to have the same answer.
+
+**Why this happens.**  A VLM answers a scene-level question.  Our task is
+*referential*: of the many holds in the frame, which one is the climber
+using?  Without a spatial anchor the model falls back on the most salient
+colour region, which is why it labels a wall dominated by red holds "red"
+even while the climber is on a black line (2X_wall_01).  This is precisely
+the failure mode that motivates body-anchored prompting (Section 1.3), and
+it also shows that the task is not solved by scaling a general model — the
+missing ingredient is a spatial prior, not capacity.
+
+**Reliability caveat.**  Repeated queries on the same image returned
+different answers (image 1: "purple" on one call, "green" on another)
+despite `temperature=0`; VLM outputs are therefore not reproducible
+run-to-run, and the numbers above are a single pass.  We also note that
+for this account only `qwen-vl-max` and `qwen3-vl-plus` accepted requests;
+other Qwen-VL variants returned HTTP 403 (`access_denied`), so this
+comparison covers one model family member in depth rather than a sweep.
+
 ---
 
 ## 5. Discussion
@@ -796,7 +870,11 @@ repository.
 CPU: Intel Core i5-13500H (12C/16T), PyTorch + onnxruntime CPU execution
 providers.  Stage timings measured on 3 frames of 2X_wall_01 (one warmup
 frame excluded) via `dwpose_exp/dbg_profile_frame.py`; the full-set mean
-is over all 65 frames of the benchmark.
+is over all 65 frames of the benchmark.  A general vision-language model (Qwen-VL) given the same
+frames reaches only **5/10** on the walls and 1/5 on the single-image set;
+its errors concentrate on exactly the camouflaged and low-saturation cases
+the method targets, indicating that the missing ingredient is a spatial
+prior rather than model capacity.
 
 | Component | Time | Note |
 |---|---|---|

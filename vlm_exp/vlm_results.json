@@ -1,0 +1,346 @@
+[
+  {
+    "model": "qwen-vl-max-latest",
+    "mode": "images",
+    "rows": [
+      {
+        "img": "1.jpg",
+        "truth": "紫",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": false,
+        "sec": 5.25,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-ddcea77b-55d8-991a-9128-05a4b3caa495', 'request_id': 'ddcea77b-55d8-991a-9128-05a4b3caa495'}"
+      },
+      {
+        "img": "2.jpg",
+        "truth": "?",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": null,
+        "sec": 0.23,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-d307d25e-cb0f-9001-b9d3-1b3c54c4c590', 'request_id': 'd307d25e-cb0f-9001-b9d3-1b3c54c4c590'}"
+      },
+      {
+        "img": "3.jpg",
+        "truth": "?",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": null,
+        "sec": 0.35,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-954a9a22-4a7f-91c9-92ac-4c855effca32', 'request_id': '954a9a22-4a7f-91c9-92ac-4c855effca32'}"
+      },
+      {
+        "img": "4.jpg",
+        "truth": "粉红",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": false,
+        "sec": 0.38,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-90a74c1f-6b76-99f1-9282-2bb27b678f6c', 'request_id': '90a74c1f-6b76-99f1-9282-2bb27b678f6c'}"
+      },
+      {
+        "img": "5.jpg",
+        "truth": "?",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": null,
+        "sec": 0.33,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-bb5acc53-9368-9ab5-8f4b-5a48711e72b2', 'request_id': 'bb5acc53-9368-9ab5-8f4b-5a48711e72b2'}"
+      },
+      {
+        "img": "6.jpg",
+        "truth": "黄",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": false,
+        "sec": 0.27,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-b459cfd8-d180-9472-9c25-dd129aa3f79e', 'request_id': 'b459cfd8-d180-9472-9c25-dd129aa3f79e'}"
+      },
+      {
+        "img": "7.jpg",
+        "truth": "?",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": null,
+        "sec": 0.3,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-a9a7685c-06f5-9dae-8f7b-82572218fdea', 'request_id': 'a9a7685c-06f5-9dae-8f7b-82572218fdea'}"
+      },
+      {
+        "img": "8.jpg",
+        "truth": "蓝",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": false,
+        "sec": 0.37,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-4f39ab73-9830-9602-8e93-4ac16b62a1c3', 'request_id': '4f39ab73-9830-9602-8e93-4ac16b62a1c3'}"
+      },
+      {
+        "img": "9.jpg",
+        "truth": "白",
+        "raw": "",
+        "pred": "ERROR",
+        "ok": false,
+        "sec": 0.45,
+        "error": "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Access denied. For details, see: https://help.aliyun.com/zh/model-studio/error-code#access-denied', 'type': 'access_denied', 'param': None, 'code': 'access_denied'}, 'id': 'chatcmpl-4c3dc0a2-1a0d-9cf1-94e1-f4ab88f4807c', 'request_id': '4c3dc0a2-1a0d-9cf1-94e1-f4ab88f4807c'}"
+      }
+    ],
+    "hits": 0,
+    "total": 5,
+    "elapsed_sec": 74.7
+  },
+  {
+    "model": "qwen-vl-max",
+    "mode": "images",
+    "rows": [
+      {
+        "img": "1.jpg",
+        "truth": "紫",
+        "raw": "绿",
+        "pred": "绿",
+        "ok": false,
+        "sec": 3.02,
+        "error": null
+      },
+      {
+        "img": "2.jpg",
+        "truth": "?",
+        "raw": "黄",
+        "pred": "黄",
+        "ok": null,
+        "sec": 1.7,
+        "error": null
+      },
+      {
+        "img": "3.jpg",
+        "truth": "?",
+        "raw": "绿",
+        "pred": "绿",
+        "ok": null,
+        "sec": 1.43,
+        "error": null
+      },
+      {
+        "img": "4.jpg",
+        "truth": "粉红",
+        "raw": "粉红",
+        "pred": "红",
+        "ok": false,
+        "sec": 2.02,
+        "error": null
+      },
+      {
+        "img": "5.jpg",
+        "truth": "?",
+        "raw": "黄",
+        "pred": "黄",
+        "ok": null,
+        "sec": 1.56,
+        "error": null
+      },
+      {
+        "img": "6.jpg",
+        "truth": "黄",
+        "raw": "黄",
+        "pred": "黄",
+        "ok": true,
+        "sec": 1.33,
+        "error": null
+      },
+      {
+        "img": "7.jpg",
+        "truth": "?",
+        "raw": "粉红",
+        "pred": "红",
+        "ok": null,
+        "sec": 1.84,
+        "error": null
+      },
+      {
+        "img": "8.jpg",
+        "truth": "蓝",
+        "raw": "紫",
+        "pred": "紫",
+        "ok": false,
+        "sec": 1.53,
+        "error": null
+      },
+      {
+        "img": "9.jpg",
+        "truth": "白",
+        "raw": "紫",
+        "pred": "紫",
+        "ok": false,
+        "sec": 1.53,
+        "error": null
+      }
+    ],
+    "hits": 1,
+    "total": 5,
+    "elapsed_sec": 16.0
+  },
+  {
+    "model": "qwen-vl-max",
+    "mode": "walls_3f",
+    "rows": [
+      {
+        "wall": "2XRo7VbPgTe_wall_01_known_IMG_20260808_193753",
+        "truth": "黑",
+        "frames": 3,
+        "per_frame": [
+          "红",
+          "红",
+          "黑"
+        ],
+        "votes": {
+          "红": 2,
+          "黑": 1
+        },
+        "pred": "红",
+        "ok": false
+      },
+      {
+        "wall": "2XRo7VbPgTe_wall_02_known_IMG_20260808_193745",
+        "truth": "蓝",
+        "frames": 3,
+        "per_frame": [
+          "绿",
+          "蓝",
+          "蓝"
+        ],
+        "votes": {
+          "绿": 1,
+          "蓝": 2
+        },
+        "pred": "蓝",
+        "ok": true
+      },
+      {
+        "wall": "2XRo7VbPgTe_wall_03_known_IMG_20260808_193754",
+        "truth": "粉红",
+        "frames": 3,
+        "per_frame": [
+          "红",
+          "红",
+          "红"
+        ],
+        "votes": {
+          "红": 3
+        },
+        "pred": "红",
+        "ok": false
+      },
+      {
+        "wall": "2XRo7VbPgTe_wall_04_known_IMG_20260808_193724",
+        "truth": "青",
+        "frames": 3,
+        "per_frame": [
+          "红",
+          "青",
+          "青"
+        ],
+        "votes": {
+          "红": 1,
+          "青": 2
+        },
+        "pred": "青",
+        "ok": true
+      },
+      {
+        "wall": "3OHz6rZ5opG_wall_01_unknown",
+        "truth": "蓝",
+        "frames": 3,
+        "per_frame": [
+          "无法判断",
+          "蓝",
+          "蓝"
+        ],
+        "votes": {
+          "蓝": 2
+        },
+        "pred": "蓝",
+        "ok": true
+      },
+      {
+        "wall": "3OHz6rZ5opG_wall_02_unknown",
+        "truth": "红",
+        "frames": 3,
+        "per_frame": [
+          "红",
+          "红",
+          "红"
+        ],
+        "votes": {
+          "红": 3
+        },
+        "pred": "红",
+        "ok": true
+      },
+      {
+        "wall": "3OHz6rZ5opG_wall_03_known_IMG_20260808_193612",
+        "truth": "黄",
+        "frames": 3,
+        "per_frame": [
+          "黄",
+          "红",
+          "红"
+        ],
+        "votes": {
+          "黄": 1,
+          "红": 2
+        },
+        "pred": "红",
+        "ok": false
+      },
+      {
+        "wall": "3OHz6rZ5opG_wall_04_line1_white",
+        "truth": "白",
+        "frames": 3,
+        "per_frame": [
+          "白",
+          "绿",
+          "绿"
+        ],
+        "votes": {
+          "白": 1,
+          "绿": 2
+        },
+        "pred": "绿",
+        "ok": false
+      },
+      {
+        "wall": "3OHz6rZ5opG_wall_04_line2_pink",
+        "truth": "粉红",
+        "frames": 3,
+        "per_frame": [
+          "红",
+          "红",
+          "红"
+        ],
+        "votes": {
+          "红": 3
+        },
+        "pred": "红",
+        "ok": false
+      },
+      {
+        "wall": "3OHz6rZ5opG_wall_05_known_IMG_20260808_193650",
+        "truth": "绿",
+        "frames": 3,
+        "per_frame": [
+          "绿",
+          "绿",
+          "绿"
+        ],
+        "votes": {
+          "绿": 3
+        },
+        "pred": "绿",
+        "ok": true
+      }
+    ],
+    "hits": 5,
+    "total": 10,
+    "elapsed_sec": 47.0
+  }
+]
