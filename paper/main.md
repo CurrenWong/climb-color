@@ -391,17 +391,23 @@ and documented in `LESSONS.md`.
 
 ### 4.3 Main result (Table 1)
 
-| Configuration | Wall Acc | Latency/frame |
+| Method | Wall Acc | Latency/frame |
 |---|---|---|
-| Full pipeline (ring + adaptive box) | **10/10** | 7.64 s |
-| − Ring black vote correction | 9/10 | 9.26 s* |
-| − Person-bbox-adaptive box | 8/10 | 8.88 s* |
+| HSV-only (endpoint ring sampling, no hold segmentation) | 4/10 | ~1 s |
+| v1 detect_holds (HSV connected components + bbox match) | 6/10 | ~1.2 s |
+| EdgeSAM + DWPose, no ring, no adaptive box | 8/10 | 8.0 s |
+| + Ring black vote correction | 9/10 | 9.3 s* |
+| **+ Person-bbox-adaptive box (full)** | **10/10** | 7.6 s |
 
-\* Latency differences are CPU noise; both components cost ≈0 (ring = pure
-numpy statistics over ~13k pixels; adaptive box = one bbox computation).
+\* Latency differences are CPU noise; ring and box-adaptation cost ≈0
+(ring = pure numpy statistics over ~13k pixels; adaptive box = one bbox computation).
 
-HSV-only and detect_holds v1 baselines are evaluated on the single-image set
-(Table 2) since they do not produce per-wall video outputs.
+**Progression**: 4/10 → 6/10 → 8/10 → 9/10 → 10/10.  The two color-space
+baselines fail on exactly the cases the paper targets: dark holds on a colorful
+wall (2X_01), low-saturation white holds (line1), pink-vs-red confusion
+(line2), and cyan-vs-green confusion (3O_05).  Comparing the two baselines
+also isolates the value of hold segmentation itself (+2 walls from
+HSV-only to detect_holds).
 
 ### 4.4 Single-image test (Table 2)
 

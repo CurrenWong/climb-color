@@ -1,0 +1,11 @@
+baseline (v1 detect_holds (HSV connected components)) 命中: 6/10
+2XRo7VbPgTe_wall_01_known_IMG_20260808_193753            判=橙    (6/21)  真值=黑       ❌
+2XRo7VbPgTe_wall_02_known_IMG_20260808_193745            判=蓝    (28/35)  真值=蓝       ✅
+2XRo7VbPgTe_wall_03_known_IMG_20260808_193754            判=粉红   (6/22)  真值=粉红      ✅
+2XRo7VbPgTe_wall_04_known_IMG_20260808_193724            判=青    (12/21)  真值=青       ✅
+3OHz6rZ5opG_wall_01_unknown                              判=蓝    (10/23)  真值=蓝       ✅
+3OHz6rZ5opG_wall_02_unknown                              判=白    (18/31)  真值=红       ❌
+3OHz6rZ5opG_wall_03_known_IMG_20260808_193612            判=黄    (5/14)  真值=黄       ✅
+3OHz6rZ5opG_wall_04_line1_white                          判=白    (6/14)  真值=白       ✅
+3OHz6rZ5opG_wall_04_line2_pink                           判=白    (8/16)  真值=粉红      ❌
+3OHz6rZ5opG_wall_05_known_IMG_20260808_193650            判=蓝    (15/28)  真值=绿       ❌

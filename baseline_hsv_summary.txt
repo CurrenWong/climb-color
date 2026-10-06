@@ -1,0 +1,11 @@
+baseline (HSV-only (endpoint ring sampling)) 命中: 4/10
+2XRo7VbPgTe_wall_01_known_IMG_20260808_193753            判=橙    (14/24)  真值=黑       ❌
+2XRo7VbPgTe_wall_02_known_IMG_20260808_193745            判=蓝    (17/35)  真值=蓝       ✅
+2XRo7VbPgTe_wall_03_known_IMG_20260808_193754            判=粉红   (7/22)  真值=粉红      ✅
+2XRo7VbPgTe_wall_04_known_IMG_20260808_193724            判=青    (7/21)  真值=青       ✅
+3OHz6rZ5opG_wall_01_unknown                              判=蓝    (11/24)  真值=蓝       ✅
+3OHz6rZ5opG_wall_02_unknown                              判=橙    (11/31)  真值=红       ❌
+3OHz6rZ5opG_wall_03_known_IMG_20260808_193612            判=橙    (8/15)  真值=黄       ❌
+3OHz6rZ5opG_wall_04_line1_white                          判=橙    (9/14)  真值=白       ❌
+3OHz6rZ5opG_wall_04_line2_pink                           判=橙    (7/16)  真值=粉红      ❌
+3OHz6rZ5opG_wall_05_known_IMG_20260808_193650            判=蓝    (12/28)  真值=绿       ❌
