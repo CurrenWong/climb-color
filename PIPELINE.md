@@ -33,7 +33,7 @@ climb-color/
 │   ├── yolox_l.onnx / dw-ll_ucoco_384.onnx        DWPose
 │   └── pose_landmarker_full.task MediaPipe Pose
 ├── 文档
-│   ├── README.md / PIPELINE.md / LESSONS.md / CHANGELOG.md
+│   ├── README.md（英文）/ README_zh.md（中文）/ PIPELINE.md / LESSONS.md / CHANGELOG.md
 │   ├── paper/                    论文（中英 Markdown + 图 + 数据 + DOCX 导出脚本）
 │   └── docs/demo/                README 引用的 demo 图
 └── EdgeSAM/                      EdgeSAM 源码 clone（gitignored）
