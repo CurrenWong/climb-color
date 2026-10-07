@@ -487,6 +487,13 @@ frames; per-frame votes are also logged for diagnosis but are not the
 reported metric, since a climber legitimately touches different holds
 while moving through a route.
 
+**Image sources and privacy.** All test media — the single-image set and
+both climbing videos — were collected from public platforms (Xiaohongshu,
+Baidu Images) for research use. In every figure of this paper and in the
+repository's demo images, the climber's face is either not visible or has
+been pixelated (see `docs/demo/wall_blue.jpg`). We claim no rights to the
+source media and will remove any image on request.
+
 ### 4.2 Metrics
 
 * **Wall-level accuracy**: 1 if the aggregated wall color matches ground

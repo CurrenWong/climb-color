@@ -45,6 +45,11 @@ the ring used for the black vote, and the pink outline is the person mask.
 
 More examples in [`docs/demo/`](docs/demo/).
 
+> **Image sources.** The demo images were collected from public platforms such as
+> Xiaohongshu and Baidu Images, and are used for research and demonstration only.
+> The climber's face in the first video-frame image has been pixelated. If you hold
+> the rights to any of these images and would like it removed, please open an issue.
+
 ---
 
 ## 🚀 Quick Start
