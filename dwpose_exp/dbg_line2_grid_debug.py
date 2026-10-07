@@ -26,9 +26,9 @@ from yolo_person_mask import PersonMasker
 
 WALL = r"..\img_xhs_walls\3OHz6rZ5opG_wall_04_line2_pink"
 
-dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
 segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-person_masker = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+person_masker = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
 GRID_N = edgesam_holds.GRID_N
 WHITE_SAT_MAX = edgesam_holds.WHITE_SAT_MAX

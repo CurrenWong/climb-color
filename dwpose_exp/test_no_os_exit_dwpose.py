@@ -38,9 +38,9 @@ def main():
 
     # ---- 按 exp_dwpose_full.py 顺序加载组件 ----
     t0 = time.time()
-    dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+    dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
     segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-    person_masker = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+    person_masker = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
     print(f"组件加载完成: {time.time()-t0:.1f}s")
 
     list_threads("加载后")

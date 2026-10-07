@@ -232,7 +232,7 @@ def main():
     h, w = image_bgr.shape[:2]
 
     # DWPose
-    dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+    dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
     boxes, kps, scores = dw.run(image_bgr)
     if kps is None:
         print("❌ DWPose 未检测到人")
@@ -243,7 +243,7 @@ def main():
     body_cy = float(pts[:, 1].mean())
 
     # Person mask
-    pm = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+    pm = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
     person_mask = pm.segment(image_bgr)
 
     # EdgeSAM

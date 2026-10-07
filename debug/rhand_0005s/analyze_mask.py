@@ -18,7 +18,7 @@ from yolo_person_mask import PersonMasker
 
 segmenter = edgesam_holds.EdgeSamHoldSegmenter(
     r"D:\Project\climbing_wall_search\mediapipe2\weights\edge_sam.pth", device="cpu")
-person_masker = PersonMasker(model_name="yolo26m-seg.pt", device="cpu")
+person_masker = PersonMasker(model_name="weights/yolo26m-seg.pt", device="cpu")
 
 BaseOptions = mp.tasks.BaseOptions
 PoseLandmarker = mp.tasks.vision.PoseLandmarker
@@ -26,7 +26,7 @@ PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 landmarker = PoseLandmarker.create_from_options(
     PoseLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=r"D:\Project\climbing_wall_search\mediapipe2\pose_landmarker_full.task"),
+        base_options=BaseOptions(model_asset_path=r"D:\Project\climbing_wall_search\mediapipe2\weights\pose_landmarker_full.task"),
         running_mode=VisionRunningMode.IMAGE, num_poses=1,
         min_pose_detection_confidence=0.3, min_pose_presence_confidence=0.3,
         min_tracking_confidence=0.3))

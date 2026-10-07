@@ -27,9 +27,9 @@ WALLS = {
     '3O wall_03 红': r"..\img_xhs_walls\3OHz6rZ5opG_wall_03_known_IMG_20260808_193612",
 }
 
-dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
 segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-person_masker = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+person_masker = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
 for label, wall_dir in WALLS.items():
     frames = sorted(Path(wall_dir).glob('*.jpg'))

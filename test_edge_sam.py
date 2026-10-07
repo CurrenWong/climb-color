@@ -380,7 +380,7 @@ def main():
                     help='Path to EdgeSAM .pth checkpoint')
     ap.add_argument('--img', default='img', help='Input image dir')
     ap.add_argument('--device', default='cpu', choices=['cpu', 'cuda'])
-    ap.add_argument('--pose_model', default='pose_landmarker_full.task')
+    ap.add_argument('--pose_model', default='weights/pose_landmarker_full.task')
     ap.add_argument('--prefix', default='result_edgesam',
                     help='Output filename prefix')
     ap.add_argument('--aggregate-walls', action='store_true',
@@ -404,7 +404,7 @@ def main():
     #（图1 紫色 hold 被吞 97% → subtract 扣光 → 判黄）。yolo26m (52MB)
     # mask 更精准（紫色 hold 仅被吞 2%），且保证算法与显示用同一个 mask。
     print("加载 YOLO26 person masker (yolo26m-seg.pt)…")
-    person_masker = PersonMasker(model_name="yolo26m-seg.pt", device=args.device)
+    person_masker = PersonMasker(model_name="weights/yolo26m-seg.pt", device=args.device)
     print("  ✅ YOLO26 person masker 加载完成")
 
     # MediaPipe pose

@@ -25,7 +25,7 @@ from yolo_person_mask import PersonMasker
 IMG = r"D:\Project\climbing_wall_search\mediapipe2\img_xhs_walls\2XRo7VbPgTe_wall_01_known_IMG_20260808_193753\frame_0005s.jpg"
 OUT_DIR = r"D:\Project\climbing_wall_search\mediapipe2\dbg_rhand_0005s"
 CKPT = r"D:\Project\climbing_wall_search\mediapipe2\weights\edge_sam.pth"
-POSE_MODEL = r"D:\Project\climbing_wall_search\mediapipe2\pose_landmarker_full.task"
+POSE_MODEL = r"D:\Project\climbing_wall_search\mediapipe2\weights\pose_landmarker_full.task"
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -39,7 +39,7 @@ segmenter = edgesam_holds.EdgeSamHoldSegmenter(CKPT, device="cpu")
 print("✅ EdgeSAM 加载完成")
 
 # YOLO26 person masker
-person_masker = PersonMasker(model_name="yolo26m-seg.pt", device="cpu")
+person_masker = PersonMasker(model_name="weights/yolo26m-seg.pt", device="cpu")
 print("✅ YOLO26 person masker 加载完成")
 
 # MediaPipe pose

@@ -114,6 +114,6 @@ ax.text(7.5, legend_y, '● Voting/correction', fontsize=8, color=COLOR_VOTE)
 ax.text(10.5, legend_y, '● Aggregation', fontsize=8, color=COLOR_OUTPUT)
 
 plt.tight_layout()
-plt.savefig(r'D:\Project\climbing_wall_search\mediapipe2\paper\fig1_pipeline.png',
+plt.savefig(r'D:\Project\climbing_wall_search\mediapipe2\paper\figures\fig1_pipeline.png',
             dpi=150, bbox_inches='tight', facecolor='white')
 print("✓ Saved fig1_pipeline.png")

@@ -207,7 +207,7 @@ HoD（岩点检测）数据集 [Ionescu 2016] 与 IFoU 攀岩比赛数据集提�
 ### 3.1 流水线总览
 
 [图 1 — 流水线总览：人体掩码 + 姿态 → EdgeSAM 提示 → 候选筛选 →
- 像素投票 → 环形带修正 → 跨帧聚合。见 `paper/fig1_pipeline.png`。]
+ 像素投票 → 环形带修正 → 跨帧聚合。见 `paper/figures/fig1_pipeline.png`。]
 
 流水线共六个阶段。输入帧 `(W, H, 3)` 的处理过程为：
 
@@ -239,7 +239,7 @@ HoD（岩点检测）数据集 [Ionescu 2016] 与 IFoU 攀岩比赛数据集提�
 
 [图 2 — 提示几何：1 个正点（端点）+ 14 个负点（1 个朝身体方向、5 个环绕
  端点、8 个落在人体掩码边界上），以及自适应采样框。见
- `paper/fig2_prompt_design.png`。]
+ `paper/figures/fig2_prompt_design.png`。]
 
 对每个端点 `(px, py)` 与逐帧人体掩码 `person_mask`（形状 `(H, W)`）：
 
@@ -342,7 +342,7 @@ def pixel_vote(bgr_mask):
 
 ### 3.5 环形带黑票修正（核心创新）
 
-[图 3 — 几何与判定规则，见 `paper/fig3_ring_black.png`。]
+[图 3 — 几何与判定规则，见 `paper/figures/fig3_ring_black.png`。]
 
 完整论述（含算法、阈值推导、成本分析与失效模式）见
 [method_3_5_ring_black.md](method_3_5_ring_black.md)。
@@ -373,7 +373,7 @@ route_color = argmax(Counter(
 [图 4 — 3O wall_04 line1 第 0105 秒帧的前后对比：固定 160 px 框时，
  R_hand 的候选集包含一个远处的红色岩点（得分 0.806、面积 14574）并
  胜出；改用自适应 128 px 框后，手边的白色岩点以 0.881 胜出。见
- `paper/fig4_box_adaptive.jpg`。]
+ `paper/figures/fig4_box_adaptive.jpg`。]
 
 采样框半径必须同时满足两个相互竞争的约束：
 
@@ -639,7 +639,7 @@ COCO-WholeBody 关键点）通过大脚趾关键点提升了脚部准确率，�
 
 ### 5.3 EdgeSAM 在小目标与遮挡岩点上的局限
 
-单图领域仍有两个未解决的案例（图 5，见 `paper/fig5_failure_cases.jpg`）。
+单图领域仍有两个未解决的案例（图 5，见 `paper/figures/fig5_failure_cases.jpg`）。
 图 6 中，线路岩点是白色墙远端的一个小黄色岩点；EdgeSAM 的编码器特征在
 这个空间尺度上衰减，四个候选掩码全都贴到了白墙上，于是给出"白 100%"，
 而真值是黄。图 8 中，攀岩者的身体遮住了蓝色岩点的大部分；减去人体掩码
@@ -792,8 +792,8 @@ git clone --depth 1 https://github.com/chongzhou96/EdgeSAM.git
 # 3. 下载权重
 python download_weights.py
 
-# 4. 单图运行
-python test_edge_sam.py --img img/1.jpg
+# 4. 在图像目录上运行
+python test_edge_sam.py --img img
 
 # 5. 全量视频墙段聚合
 python test_edge_sam.py --aggregate-walls

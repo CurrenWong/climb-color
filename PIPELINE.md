@@ -27,8 +27,8 @@ climb-color/
 │   ├── dwpose_exp/               DWPose 实验子项目（含自己的 README）
 │   ├── vlm_exp/                  Qwen-VL 基线（5/10）
 │   └── debug/                    探索性脚本（rhand_0005s/ = ring 黑票修正的发现过程）
-├── 权重与模型（gitignored）
-│   ├── weights/edge_sam.pth      EdgeSAM 主权重
+├── weights/                      全部模型权重（gitignored）
+│   ├── edge_sam.pth              EdgeSAM 主权重
 │   ├── yolo26m-seg.pt            人体分割
 │   ├── yolox_l.onnx / dw-ll_ucoco_384.onnx        DWPose
 │   └── pose_landmarker_full.task MediaPipe Pose

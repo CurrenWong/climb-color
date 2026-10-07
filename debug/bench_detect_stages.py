@@ -13,7 +13,7 @@ import edgesam_stub  # noqa: F401
 from dwpose_onnx import DWPoseONNX, DET_INPUT_SIZE, DET_NMS_THR, DET_SCORE_THR
 
 img = cv2.imread(r"..\img_xhs_walls\2XRo7VbPgTe_wall_01_known_IMG_20260808_193753\frame_0005s.jpg")
-dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
 
 # warmup
 _ = dw.detect(img)

@@ -107,7 +107,7 @@ def main():
     VisionRunningMode = mp.tasks.vision.RunningMode
 
     options = PoseLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path='pose_landmarker_full.task'),
+        base_options=BaseOptions(model_asset_path='weights/pose_landmarker_full.task'),
         running_mode=VisionRunningMode.IMAGE,
         num_poses=1,
         min_pose_detection_confidence=0.3,

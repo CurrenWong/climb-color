@@ -101,7 +101,7 @@ def main():
     VisionRunningMode = mp.tasks.vision.RunningMode
     landmarker = PoseLandmarker.create_from_options(
         PoseLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path='pose_landmarker_full.task'),
+            base_options=BaseOptions(model_asset_path='weights/pose_landmarker_full.task'),
             running_mode=VisionRunningMode.IMAGE,
             num_poses=1,
         )
@@ -118,7 +118,7 @@ def main():
         print(f"  {k}: {v}")
 
     # ---------- 2. YOLO26 pose ----------
-    yolo = YOLO('../yolo26n-pose.pt')
+    yolo = YOLO('../weights/yolo26n-pose.pt')
     res = yolo.predict(image_rgb, conf=0.25, verbose=False)[0]
     yolo_pts = {}
     print("\nYOLO26 pose 检测: person 数量 =", len(res.keypoints) if res.keypoints is not None else 0)

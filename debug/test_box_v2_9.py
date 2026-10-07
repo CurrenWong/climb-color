@@ -72,7 +72,7 @@ def main():
 
     # EdgeSAM + YOLO26 + MediaPipe
     seg = edgesam_holds.EdgeSamHoldSegmenter('weights/edge_sam.pth', 'cpu')
-    masker = PersonMasker('yolo26n-seg.pt', 'cpu')
+    masker = PersonMasker('weights/yolo26n-seg.pt', 'cpu')
     pm = masker.segment(img)
     pm_d15 = dilate_mask(pm, 15)
 
@@ -80,7 +80,7 @@ def main():
     P = mp.tasks.vision.PoseLandmarker
     O = mp.tasks.vision.PoseLandmarkerOptions
     R = mp.tasks.vision.RunningMode
-    opts = O(base_options=B(model_asset_path='pose_landmarker_full.task'),
+    opts = O(base_options=B(model_asset_path='weights/pose_landmarker_full.task'),
              running_mode=R.IMAGE, num_poses=1,
              min_pose_detection_confidence=0.3,
              min_pose_presence_confidence=0.3,

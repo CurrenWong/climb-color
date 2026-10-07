@@ -68,9 +68,9 @@ def main():
         print(f"  {w.name}  ({n} frames @1s)")
 
     print("\nloading models ...")
-    dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+    dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
     segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-    pm = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+    pm = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
     tee = Tee(str(Path(_BASE) / "dense_sampling.log"))
     old = sys.stdout

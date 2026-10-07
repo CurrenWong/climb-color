@@ -41,9 +41,9 @@ def main():
     print(f"frames found: {len(files)} (frame 0 = warmup, excluded)")
 
     print("loading models (untimed) ...")
-    dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+    dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
     segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-    pm = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+    pm = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
     acc = []
     for i, fp in enumerate(files):

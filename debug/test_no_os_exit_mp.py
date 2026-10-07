@@ -23,7 +23,7 @@ def main():
 
     landmarker = PoseLandmarker.create_from_options(
         PoseLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path='pose_landmarker_full.task'),
+            base_options=BaseOptions(model_asset_path='weights/pose_landmarker_full.task'),
             running_mode=VisionRunningMode.IMAGE,
             num_poses=1,
         )

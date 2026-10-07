@@ -103,7 +103,7 @@ def main():
 
     # 2. 加载 EdgeSAM + YOLO26
     seg = edgesam_holds.EdgeSamHoldSegmenter('weights/edge_sam.pth', 'cpu')
-    masker = PersonMasker('yolo26n-seg.pt', 'cpu')
+    masker = PersonMasker('weights/yolo26n-seg.pt', 'cpu')
     pm = masker.segment(img)
 
     # 3. 加载 MediaPipe pose + flip ensemble
@@ -111,7 +111,7 @@ def main():
     P = mp.tasks.vision.PoseLandmarker
     O = mp.tasks.vision.PoseLandmarkerOptions
     R = mp.tasks.vision.RunningMode
-    opts = O(base_options=B(model_asset_path='pose_landmarker_full.task'),
+    opts = O(base_options=B(model_asset_path='weights/pose_landmarker_full.task'),
              running_mode=R.IMAGE, num_poses=1,
              min_pose_detection_confidence=0.3,
              min_pose_presence_confidence=0.3,

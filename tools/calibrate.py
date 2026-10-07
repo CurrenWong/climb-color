@@ -24,7 +24,7 @@ P = mp.tasks.vision.PoseLandmarker
 O = mp.tasks.vision.PoseLandmarkerOptions
 R = mp.tasks.vision.RunningMode
 _OPTS = O(
-    base_options=B(model_asset_path='pose_landmarker_full.task'),
+    base_options=B(model_asset_path='weights/pose_landmarker_full.task'),
     running_mode=R.IMAGE, num_poses=1,
 )
 _LANDMARKER = P.create_from_options(_OPTS)

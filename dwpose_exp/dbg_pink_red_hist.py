@@ -30,9 +30,9 @@ CASES = [
     ('2X03_pink 0105s L_hand', r"..\img_xhs_walls\2XRo7VbPgTe_wall_03_known_IMG_20260808_193754\frame_0105s.jpg", 9),
 ]
 
-dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
 segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-person_masker = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+person_masker = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
 for label, img_path_s, kidx in CASES:
     image_bgr = cv2.imread(img_path_s)

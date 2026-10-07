@@ -105,7 +105,7 @@ def main():
     DrawingStyles = mp.tasks.vision.drawing_styles
 
     options = PoseLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path='pose_landmarker_full.task'),
+        base_options=BaseOptions(model_asset_path='weights/pose_landmarker_full.task'),
         running_mode=VisionRunningMode.IMAGE,
         num_poses=1,
         min_pose_detection_confidence=0.3,   # 0.5 会漏检小尺寸/被挡的人（8.jpg 实测需 <=0.4）

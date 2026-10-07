@@ -30,7 +30,7 @@ def test_close():
     VisionRunningMode = mp.tasks.vision.RunningMode
     landmarker = PoseLandmarker.create_from_options(
         PoseLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path='pose_landmarker_full.task'),
+            base_options=BaseOptions(model_asset_path='weights/pose_landmarker_full.task'),
             running_mode=VisionRunningMode.IMAGE,
             num_poses=1,
         )
@@ -50,7 +50,7 @@ def test_del():
     VisionRunningMode = mp.tasks.vision.RunningMode
     landmarker = PoseLandmarker.create_from_options(
         PoseLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path='pose_landmarker_full.task'),
+            base_options=BaseOptions(model_asset_path='weights/pose_landmarker_full.task'),
             running_mode=VisionRunningMode.IMAGE,
             num_poses=1,
         )
@@ -73,7 +73,7 @@ def test_with():
     t0 = time.time()
     with PoseLandmarker.create_from_options(
         PoseLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path='pose_landmarker_full.task'),
+            base_options=BaseOptions(model_asset_path='weights/pose_landmarker_full.task'),
             running_mode=VisionRunningMode.IMAGE,
             num_poses=1,
         )

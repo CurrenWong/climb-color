@@ -88,6 +88,6 @@ ax.set_title('Body-Anchored Visual Prompting\n'
 ax.legend(loc='upper left', fontsize=8, framealpha=0.9)
 
 plt.tight_layout()
-plt.savefig(r'D:\Project\climbing_wall_search\mediapipe2\paper\fig2_prompt_design.png',
+plt.savefig(r'D:\Project\climbing_wall_search\mediapipe2\paper\figures\fig2_prompt_design.png',
             dpi=150, bbox_inches='tight', facecolor='white')
 print("✓ Saved fig2_prompt_design.png")

@@ -175,9 +175,9 @@ def analyze_frame(image_bgr, yolo, segmenter, person_masker):
 
 def main():
     os.chdir(BASE)
-    yolo = YOLO('../yolo26n-pose.pt')
+    yolo = YOLO('../weights/yolo26n-pose.pt')
     segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-    person_masker = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+    person_masker = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
     walls = sorted(WALLS_DIR.iterdir())
     print(f"共 {len(walls)} 个 wall\n")

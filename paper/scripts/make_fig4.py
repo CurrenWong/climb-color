@@ -1,22 +1,22 @@
 """拼 paper Fig 4: adaptive box 对比（box=160 fixed vs box=128 person-adaptive）。
 
-素材: dwpose_exp/_fig4_before.jpg / _fig4_after.jpg
+素材: debug/fig4_src_box160.jpg / debug/fig4_src_box128.jpg（FIXED_BOX=0/1 两次运行）
      （dbg_line1_frame02_candidates.py 在 FIXED_BOX=0/1 两次运行）
 场景: 3O wall_04 line1_white frame02 (0105s)，真值 = 白
 """
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-BASE = Path(r"D:\Project\climbing_wall_search\mediapipe2")
-EXP = BASE / "dwpose_exp"
+BASE = Path(__file__).resolve().parents[2]      # 项目根
+EXP = BASE / "debug"      # 素材已移到 debug/
 
 ROWS = [
-    ('_fig4_before.jpg',
+    ('fig4_src_box160.jpg',
      '(a)  box = 160 px  (fixed)',
      'R_hand candidates: 3 white + 1 distant RED hold (score 0.806, area 14574)\n'
      '-> highest score wins -> predicts RED            (WRONG)',
      (255, 160, 160)),
-    ('_fig4_after.jpg',
+    ('fig4_src_box128.jpg',
      '(b)  box = 128 px  (person-bbox-adaptive, 0.6 x short side)',
      'R_hand candidates: white hold now scores highest (0.881)\n'
      '-> predicts WHITE                                 (CORRECT)',
@@ -67,6 +67,6 @@ for im, title, note, col in imgs:
         draw.text((14, y + 6 + i * 26), line, fill=(210, 210, 210), font=f_n)
     y += NOTE_H
 
-out = BASE / "paper" / "fig4_box_adaptive.jpg"
+out = BASE / "paper" / "figures" / "fig4_box_adaptive.jpg"
 canvas.save(out, quality=90, subsampling=0)
 print(f"saved {out}  ({canvas.size[0]}x{canvas.size[1]})")

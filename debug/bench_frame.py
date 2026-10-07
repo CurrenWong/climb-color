@@ -21,9 +21,9 @@ def tic(): return time.time()
 img = cv2.imread(IMG)
 print(f"image shape: {img.shape}")
 
-t = tic(); dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx'); print(f"load DWPose      : {tic()-t:6.2f}s")
+t = tic(); dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx'); print(f"load DWPose      : {tic()-t:6.2f}s")
 t = tic(); seg = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu'); print(f"load EdgeSAM     : {tic()-t:6.2f}s")
-t = tic(); pm = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu'); print(f"load PersonMasker: {tic()-t:6.2f}s")
+t = tic(); pm = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu'); print(f"load PersonMasker: {tic()-t:6.2f}s")
 
 # warmup
 _ = dw.run(img)

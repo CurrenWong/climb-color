@@ -78,8 +78,8 @@ git clone --depth 1 https://github.com/chongzhou96/EdgeSAM.git
 ### 4. 运行
 
 ```bash
-# 单图识别
-python test_edge_sam.py --img img/1.jpg
+# 单图/多图识别（--img 是目录；默认 img/）
+python test_edge_sam.py --img img
 
 # 视频帧墙段聚合（线路色识别）
 python test_edge_sam.py --aggregate-walls
@@ -139,14 +139,15 @@ climb-color/
 ├── edgesam_stub.py             # stub mmdet/mmcv，让 EdgeSAM 纯推理可 import
 ├── download_weights.py         # 权重下载脚本
 ├── docs/demo/                  # README 引用的精选 demo 图
-├── paper/                      # 论文（中英 Markdown + 图 + 实验数据 + DOCX 导出）
+├── paper/                      # 论文（中英正文 + figures/ scripts/ data/ + DOCX 导出）
 ├── baselines/                  # 论文对比基线（仅 HSV 4/10、detect_holds 6/10）
 ├── tools/                      # 人工核对与校准工具（v1 主程序 / 校准 / 点检查）
 ├── dwpose_exp/                 # DWPose 实验子项目（与生产路径解耦）
 ├── vlm_exp/                    # 视觉大模型基线对比（Qwen-VL 5/10）
 ├── debug/                      # 探索性脚本（按惯例保留）
 │   └── rhand_0005s/            #   └ ring 黑票修正的发现过程（exp3 系列）
-├── EdgeSAM/  weights/          # EdgeSAM 源码 clone 与权重（gitignored）
+├── weights/                    # 全部模型权重（EdgeSAM / YOLO / DWPose / MediaPipe，gitignored）
+├── EdgeSAM/                    # EdgeSAM 源码 clone（gitignored）
 ├── PIPELINE.md                 # 完整管线技术细节
 ├── LESSONS.md                  # 工程踩坑与经验
 └── CHANGELOG.md  LICENSE  README.md

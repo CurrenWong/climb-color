@@ -13,7 +13,7 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
-BASE = Path(__file__).parent
+BASE = Path(__file__).resolve().parents[1]   # paper/
 SRC = BASE / (sys.argv[2] if len(sys.argv) > 2 else "main.md")
 OUT = BASE / (sys.argv[1] if len(sys.argv) > 1 else "climbing_route_color_paper.docx")
 
@@ -22,7 +22,7 @@ LATIN = 'Calibri'
 MONO = 'Consolas'
 CODE_BG = RGBColor(0x33, 0x33, 0x33)
 
-IMG_RE = re.compile(r'paper[/\\](fig[\w]+_[\w]+\.(?:png|jpg))')
+IMG_RE = re.compile(r'paper[/\\]figures[/\\](fig[\w]+_[\w]+\.(?:png|jpg))')
 
 
 def set_style_fonts(doc):
@@ -178,7 +178,7 @@ def main():
         add_runs(p, stripped)
         imgs = IMG_RE.findall(stripped)
         for img in imgs:
-            ip = BASE.parent / 'paper' / img
+            ip = BASE / 'figures' / img
             if ip.exists():
                 doc.add_picture(str(ip), width=Inches(6.0))
                 doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER

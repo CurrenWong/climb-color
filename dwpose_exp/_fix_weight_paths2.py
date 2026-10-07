@@ -4,8 +4,8 @@ import os
 EXP_DIR = r"D:\Project\climbing_wall_search\mediapipe2\dwpose_exp"
 
 REPL = [
-    ('PersonMasker(model_name="../yolo26m-seg.pt"', 'PersonMasker(model_name="../yolo26m-seg.pt"'),
-    ("YOLO('../yolo26n-pose.pt')", "YOLO('../yolo26n-pose.pt')"),
+    ('PersonMasker(model_name="../weights/yolo26m-seg.pt"', 'PersonMasker(model_name="../weights/yolo26m-seg.pt"'),
+    ("YOLO('../weights/yolo26n-pose.pt')", "YOLO('../weights/yolo26n-pose.pt')"),
     ("EdgeSamHoldSegmenter('../weights/edge_sam.pth'", "EdgeSamHoldSegmenter('../weights/edge_sam.pth'"),
 ]
 

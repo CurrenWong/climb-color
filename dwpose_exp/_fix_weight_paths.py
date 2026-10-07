@@ -4,10 +4,10 @@ import os
 EXP_DIR = r"D:\Project\climbing_wall_search\mediapipe2\dwpose_exp"
 
 REPL = [
-    ("DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')",
-     "DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')"),
-    ("'../yolox_l.onnx'", "'../yolox_l.onnx'"),
-    ("'../dw-ll_ucoco_384.onnx'", "'../dw-ll_ucoco_384.onnx'"),
+    ("DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')",
+     "DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')"),
+    ("'../weights/yolox_l.onnx'", "'../weights/yolox_l.onnx'"),
+    ("'../weights/dw-ll_ucoco_384.onnx'", "'../weights/dw-ll_ucoco_384.onnx'"),
 ]
 
 for f in os.listdir(EXP_DIR):

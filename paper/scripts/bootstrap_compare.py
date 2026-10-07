@@ -8,7 +8,7 @@
 取其前面最近的 ">>> 线路色 = ... 票数 = {...}" 行作为该帧的票。
 （dense log 因 Tee 会把同一行打印两次，用帧标记切分可自然去重。）
 
-输出：paper/bootstrap_compare.json + 终端对比表
+输出：paper/data/bootstrap_compare.json + 终端对比表
 """
 import re
 import json

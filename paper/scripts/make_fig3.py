@@ -114,6 +114,6 @@ ax.text(5.0, 0.15,
 ax.set_title('(b) Decision rule and measured threshold', fontsize=11, weight='bold')
 
 plt.tight_layout()
-plt.savefig(r'D:\Project\climbing_wall_search\mediapipe2\paper\fig3_ring_black.png',
+plt.savefig(r'D:\Project\climbing_wall_search\mediapipe2\paper\figures\fig3_ring_black.png',
             dpi=150, bbox_inches='tight', facecolor='white')
 print("✓ Saved fig3_ring_black.png")

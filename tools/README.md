@@ -15,7 +15,7 @@
 ```bash
 python tools/show_points.py        # 输出 points_*.jpg
 python tools/calibrate.py          # 交互式：N 切图 / S 保存 / ESC 退出
-python tools/test_mp.py --img img/1.jpg
+python tools/test_mp.py             # 无参数；按脚本内设定的输入目录运行
 ```
 
 > 关于 `test_mp.py` 末尾的 `os._exit(0)`：Windows 上 MediaPipe 1.0.0 的 TFLite

@@ -134,6 +134,6 @@ out = {
     'joint_all_correct': joint / B,
     'B': B,
 }
-Path(r'D:\Project\climbing_wall_search\mediapipe2\paper\bootstrap_results.json').write_text(
+Path(r'D:\Project\climbing_wall_search\mediapipe2\paper\data\bootstrap_results.json').write_text(
     json.dumps(out, ensure_ascii=False, indent=2), encoding='utf-8')
-print("\nsaved paper/bootstrap_results.json")
+print("\nsaved paper/data/bootstrap_results.json")

@@ -194,9 +194,9 @@ def main():
     import time
     os.chdir(BASE)
     # 大权重在根目录（不复制），用 ../ 引用
-    dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+    dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
     segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-    person_masker = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+    person_masker = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
     walls = sorted(WALLS_DIR.iterdir())
     if len(sys.argv) > 1 and sys.argv[1].isdigit():

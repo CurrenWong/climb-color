@@ -18,13 +18,13 @@ class PersonMasker:
     YOLO26 segmentation 包装。只保留 person class 的像素。
 
     用法:
-        masker = PersonMasker(model_name="yolo26n-seg.pt")
+        masker = PersonMasker(model_name="weights/yolo26n-seg.pt")
         person_bool = masker.segment(image_bgr)   # HxW bool，True = 人体像素
     """
 
     def __init__(
         self,
-        model_name: str = "yolo26n-seg.pt",
+        model_name: str = "weights/yolo26n-seg.pt",
         device: str | None = None,
         imgsz: int = 640,
         conf: float = 0.25,

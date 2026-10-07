@@ -3,7 +3,7 @@ import time
 import numpy as np
 import onnxruntime as ort
 
-MODEL = "../yolox_l.onnx"
+MODEL = "../weights/yolox_l.onnx"
 inp = np.random.rand(1, 3, 640, 640).astype(np.float32)
 
 # 默认

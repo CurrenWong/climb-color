@@ -2,12 +2,12 @@
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-BASE = Path(r"D:\Project\climbing_wall_search\mediapipe2")
+BASE = Path(__file__).resolve().parents[2]      # 项目根
 
 CASES = [
-    ('failcase_1.jpg', 'img/6.jpg', 'yellow', 'white 100%',
+    ('debug/failcase_img6_pred_white.jpg', 'img/6.jpg', 'yellow', 'white 100%',
      'EdgeSAM cannot segment the\nyellow hold (far / small scale)'),
-    ('failcase_2.jpg', 'img/8.jpg', 'blue', 'purple 100%',
+    ('debug/failcase_img8_pred_purple.jpg', 'img/8.jpg', 'blue', 'purple 100%',
      'blue hold swallowed by\nperson mask (climber overlaps)'),
 ]
 
@@ -52,6 +52,6 @@ for i, (im, src, truth, pred, note) in enumerate(imgs):
               fill=(255, 210, 120), font=f_sub)
     draw.text((x0 + 10, y + 34), note, fill=(200, 200, 200), font=f_note)
 
-out = BASE / "paper" / "fig5_failure_cases.jpg"
+out = BASE / "paper" / "figures" / "fig5_failure_cases.jpg"
 canvas.save(out, quality=92, subsampling=0)
 print(f"saved {out}  ({canvas.size[0]}x{canvas.size[1]})")

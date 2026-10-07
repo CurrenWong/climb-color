@@ -29,13 +29,13 @@ WEIGHTS = {
         'EdgeSAM 官方权重 (~40MB)'
     ),
     'yolo26': (
-        'yolo26m-seg.pt',
+        'weights/yolo26m-seg.pt',
         'https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-seg.pt',
         'https://ghfast.top/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-seg.pt',
         'YOLO26m-seg 攀岩者人体分割 (~53MB)'
     ),
     'mp_pose_lite': (
-        'pose_landmarker_lite.task',
+        'weights/pose_landmarker_lite.task',
         'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
         None,
         'MediaPipe Pose landmarker lite (~5.5MB)'
@@ -82,9 +82,9 @@ def download_one(name: str) -> bool:
         # 特殊: yolox_l.onnx + dw-ll_ucoco_384.onnx 一对
         ok1 = download(
             'https://github.com/TH14GZI-J/DWPose-onnx/releases/download/dwpose-ll/yolox_l.onnx',
-            ROOT / 'yolox_l.onnx'
+            ROOT / 'weights/yolox_l.onnx'
         )
-        ok2 = download(url, ROOT / 'dw-ll_ucoco_384.onnx')
+        ok2 = download(url, ROOT / 'weights/dw-ll_ucoco_384.onnx')
         return ok1 and ok2
 
     # 优先尝试直连，失败回退 mirror

@@ -257,7 +257,7 @@ development subset and never re-tuned per wall.
 
 [Fig. 1 — pipeline overview: person mask + pose → EdgeSAM prompt →
  candidate selection → pixel voting → ring correction → cross-frame
- aggregation.  See `paper/fig1_pipeline.png`.]
+ aggregation.  See `paper/figures/fig1_pipeline.png`.]
 
 The pipeline has six stages.  An input frame `(W, H, 3)` is processed as:
 
@@ -289,7 +289,7 @@ The pipeline has six stages.  An input frame `(W, H, 3)` is processed as:
 
 [Fig. 2 — prompt geometry: 1 positive point (endpoint) + 14 negative points
 (1 toward body, 5 around the endpoint, 8 on the person-mask boundary), with
-the adaptive box.  See `paper/fig2_prompt_design.png`.]
+the adaptive box.  See `paper/figures/fig2_prompt_design.png`.]
 
 For each endpoint `(px, py)` and the per-frame `person_mask` of shape
 `(H, W)`:
@@ -404,7 +404,7 @@ S<35 ∧ V≥160 rule.  We add three paths:
 
 ### 3.5 Ring-Based Black Vote Correction (core innovation)
 
-[Fig. 3 — geometry and decision rule; see `paper/fig3_ring_black.png`.]
+[Fig. 3 — geometry and decision rule; see `paper/figures/fig3_ring_black.png`.]
 
 See [method_3_5_ring_black.md](method_3_5_ring_black.md) for the full
 treatment including algorithm, threshold derivation, cost analysis, and
@@ -441,7 +441,7 @@ place we use external knowledge (the line boundaries are given as input).
 with a fixed 160-px box the R_hand candidate set contains a distant red
 hold scoring 0.806 (area 14574) and wins; with the adaptive 128-px box
 the nearby white hold scores 0.881 and wins.  See
-`paper/fig4_box_adaptive.jpg`.]
+`paper/figures/fig4_box_adaptive.jpg`.]
 
 The box half must satisfy two competing constraints:
 
@@ -758,7 +758,7 @@ and white holds that would matter on a harder set.
 ### 5.3 EdgeSAM limitations on small and occluded holds
 
 Two single-image cases remain unsolved (Fig. 5; see
-`paper/fig5_failure_cases.jpg`).  In image 6 the route
+`paper/figures/fig5_failure_cases.jpg`).  In image 6 the route
 hold is a small yellow hold at the far end of a predominantly white
 wall; EdgeSAM's encoder features decay at this spatial scale and all
 four candidate masks latch onto the white wall instead, yielding white
@@ -941,8 +941,8 @@ git clone --depth 1 https://github.com/chongzhou96/EdgeSAM.git
 # 3. Download weights
 python download_weights.py
 
-# 4. Run on a single image
-python test_edge_sam.py --img img/1.jpg
+# 4. Run on an image folder
+python test_edge_sam.py --img img
 
 # 5. Run full video wall aggregation
 python test_edge_sam.py --aggregate-walls

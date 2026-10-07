@@ -39,9 +39,9 @@ print(f"墙目录 {len(frames)} 帧, 前5帧:")
 for f in frames[:8]:
     print(f"  {f.name}")
 
-dw = DWPoseONNX('../yolox_l.onnx', '../dw-ll_ucoco_384.onnx')
+dw = DWPoseONNX('../weights/yolox_l.onnx', '../weights/dw-ll_ucoco_384.onnx')
 segmenter = EdgeSamHoldSegmenter('../weights/edge_sam.pth', device='cpu')
-person_masker = PersonMasker(model_name="../yolo26m-seg.pt", device='cpu')
+person_masker = PersonMasker(model_name="../weights/yolo26m-seg.pt", device='cpu')
 
 for idx in [1, 2]:  # frame2, frame3 (0-based)
     img_path = frames[idx]
