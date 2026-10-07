@@ -1,6 +1,6 @@
-# LESSONS — EdgeSAM / DWPose 路线工程经验（mediapipe2）
+# LESSONS — EdgeSAM / DWPose 路线工程经验（climb-color）
 
-> 本文件收录 **mediapipe2 项目**（EdgeSAM 攀岩线路色识别）的工程经验，
+> 本文件收录 **climb-color 项目**（EdgeSAM 攀岩线路色识别）的工程经验，
 > 对应主仓库 `LESSONS_LEARNED.md` 的第 10-13 章。
 > 其它路线（VLM、MediaPipe 传统 CV、FastSAM、MobileSAM/V2）的经验见主仓库。
 >
@@ -91,10 +91,10 @@ RING_BLACK_MIN_PIXELS = 100 # 环带有效像素下限
 | 3O wall_05 | 绿 | 绿✅ | 3 |
 
 ### 10.7 相关文件
-- `mediapipe2/edgesam_holds.py` — 落地代码（`_ring_black_ratio` + `segment_endpoint` 修正）
-- `mediapipe2/test_edge_sam.py` — 打印 ring 修正信息
-- `mediapipe2/dbg_rhand_0005s/exp3*.py` — 实验 3 全系列（probe/multipoint/multi_anchor/directional/thumb/ring/wall_final）
-- `mediapipe2/dbg_rhand_0005s/exp3i_visual_ringfix.png` — 判断逻辑可视化（L_hand/R_hand 对比）
+- `climb-color/edgesam_holds.py` — 落地代码（`_ring_black_ratio` + `segment_endpoint` 修正）
+- `climb-color/test_edge_sam.py` — 打印 ring 修正信息
+- `climb-color/dbg_rhand_0005s/exp3*.py` — 实验 3 全系列（probe/multipoint/multi_anchor/directional/thumb/ring/wall_final）
+- `climb-color/dbg_rhand_0005s/exp3i_visual_ringfix.png` — 判断逻辑可视化（L_hand/R_hand 对比）
 
 
 ## 第十一章：YOLO26 pose 替代 MediaPipe Pose 实验（否决，保持 MediaPipe）

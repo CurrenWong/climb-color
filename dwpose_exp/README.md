@@ -22,7 +22,7 @@ edgesam_holds.py / _run_walls_agg.py），无需互相关回归。
 ## 运行环境（关键）
 
 ```cmd
-cd D:\Project\climbing_wall_search\mediapipe2\dwpose_exp
+cd <项目根>\dwpose_exp
 set PYTHONPATH=..\..\.venv\Lib\site-packages;..\EdgeSAM
 D:\Program\Conda\python.exe -u exp_dwpose_full.py 1   # 1 = 只跑 1 个 wall 冒烟
 ```
