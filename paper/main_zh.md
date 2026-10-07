@@ -3,7 +3,7 @@
 > 身体锚定视觉提示：面向"人体与物体嵌合"场景的细粒度颜色识别。
 
 **作者**：Curren（独立发布，MIT 许可）
-**仓库**：<https://github.com/curren/mediapipe2>
+**仓库**：<https://github.com/curren/climb-color>
 
 ---
 
