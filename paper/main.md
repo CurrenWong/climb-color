@@ -4,7 +4,7 @@
 > body-embedded object scenes.
 
 **Authors**: Curren (independently published, MIT licensed)
-**Repo**: <https://github.com/curren/climb-color>
+**Repo**: <https://github.com/CurrenWong/climb-color>
 
 ---
 

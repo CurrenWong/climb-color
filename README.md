@@ -190,7 +190,7 @@ climb-color/
   title={ClimbColor: Pose-Anchored Hold Segmentation for Climbing Route Color Recognition},
   author={Curren},
   year={2026},
-  url={https://github.com/curren/climb-color}
+  url={https://github.com/CurrenWong/climb-color}
 }
 ```
 
