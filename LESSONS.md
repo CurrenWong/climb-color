@@ -93,8 +93,8 @@ RING_BLACK_MIN_PIXELS = 100 # 环带有效像素下限
 ### 10.7 相关文件
 - `climb-color/edgesam_holds.py` — 落地代码（`_ring_black_ratio` + `segment_endpoint` 修正）
 - `climb-color/test_edge_sam.py` — 打印 ring 修正信息
-- `climb-color/dbg_rhand_0005s/exp3*.py` — 实验 3 全系列（probe/multipoint/multi_anchor/directional/thumb/ring/wall_final）
-- `climb-color/dbg_rhand_0005s/exp3i_visual_ringfix.png` — 判断逻辑可视化（L_hand/R_hand 对比）
+- `climb-color/debug/rhand_0005s/exp3*.py` — 实验 3 全系列（probe/multipoint/multi_anchor/directional/thumb/ring/wall_final）
+- `climb-color/debug/rhand_0005s/exp3i_visual_ringfix.png` — 判断逻辑可视化（L_hand/R_hand 对比）
 
 
 ## 第十一章：YOLO26 pose 替代 MediaPipe Pose 实验（否决，保持 MediaPipe）

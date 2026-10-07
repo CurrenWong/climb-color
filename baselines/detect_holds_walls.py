@@ -7,11 +7,12 @@ v1 baseline: MediaPipe Pose + detect_holds (HSV connected-components) + endpoint
   - 端点采样: 岩点 bbox 匹配 / 环形采样（sample_local_color）
   - 无 ring 黑票修正、无 person mask 引导、无自适应 box
 
-用法:
-  python baseline_detect_holds_walls.py            # 全部 wall
-  python baseline_detect_holds_walls.py 2          # 前 2 个 wall
-输出:
-  baseline_v1_summary.txt
+用法（从项目根运行）:
+  python baselines/detect_holds_walls.py             # 全部 wall
+  python baselines/detect_holds_walls.py 2           # 前 2 个 wall
+  python baselines/detect_holds_walls.py --hsv-only  # 仅 HSV 档（不做岩点分割）
+输出（写到本目录）:
+  v1_summary.txt / hsv_summary.txt
 """
 import os
 import sys
@@ -119,7 +120,8 @@ def main():
     if limit:
         walls = walls[:limit]
     method = 'HSV-only (endpoint ring sampling)' if hsv_only else 'v1 detect_holds (HSV connected components)'
-    out_file = 'baseline_hsv_summary.txt' if hsv_only else 'baseline_v1_summary.txt'
+    out_file = str(Path(__file__).resolve().parent /
+                   ('hsv_summary.txt' if hsv_only else 'v1_summary.txt'))
     print(f"baseline = {method} — {len(walls)} walls\n")
 
     lines, hits, known = [], 0, 0

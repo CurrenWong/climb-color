@@ -138,16 +138,22 @@ climb-color/
 ├── yolo_person_mask.py         # YOLO26m 人体分割
 ├── edgesam_stub.py             # stub mmdet/mmcv，让 EdgeSAM 纯推理可 import
 ├── download_weights.py         # 权重下载脚本
-├── dwpose_exp/                 # DWPose 实验子项目（与生产路径解耦）
-├── vlm_exp/                    # 视觉大模型基线对比（Qwen-VL）
-├── debug/                      # 探索性脚本（按惯例保留）
-├── EdgeSAM/  weights/          # 源码 clone 与权重（gitignored）
 ├── docs/demo/                  # README 引用的精选 demo 图
-├── paper/                      # 论文（Markdown + 图 + DOCX 导出脚本）
+├── paper/                      # 论文（中英 Markdown + 图 + 实验数据 + DOCX 导出）
+├── baselines/                  # 论文对比基线（仅 HSV 4/10、detect_holds 6/10）
+├── tools/                      # 人工核对与校准工具（v1 主程序 / 校准 / 点检查）
+├── dwpose_exp/                 # DWPose 实验子项目（与生产路径解耦）
+├── vlm_exp/                    # 视觉大模型基线对比（Qwen-VL 5/10）
+├── debug/                      # 探索性脚本（按惯例保留）
+│   └── rhand_0005s/            #   └ ring 黑票修正的发现过程（exp3 系列）
+├── EdgeSAM/  weights/          # EdgeSAM 源码 clone 与权重（gitignored）
 ├── PIPELINE.md                 # 完整管线技术细节
 ├── LESSONS.md                  # 工程踩坑与经验
-└── CHANGELOG.md
+└── CHANGELOG.md  LICENSE  README.md
 ```
+
+> 实验类代码全部集中在 `baselines/` `tools/` `debug/` `dwpose_exp/` `vlm_exp/`
+> 五个目录，仓库根只保留主流程代码与文档。
 
 ---
 

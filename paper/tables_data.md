@@ -22,7 +22,7 @@
 
 **Progression**: 4/10 → 6/10 → 8/10 → 9/10 → **10/10**
 
-原始 summary: 根目录 `baseline_hsv_summary.txt` / `baseline_v1_summary.txt`；
+原始 summary: `baselines/hsv_summary.txt` / `baselines/v1_summary.txt`；
 消融备份 `dwpose_exp/paper_ablation_*.txt`
 
 **Note on latency**: 每帧 7.6-9.3 s（CPU, i5-13500H）。组成：DWPose ~4 s（yolox_l 检测单类 NMS 后 3.4 s + RTMPose 0.34 s）+ YOLO26m person ~1.8 s + EdgeSAM 4 端点 ~2.4 s + 后处理 <0.1 s。

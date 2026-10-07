@@ -1,0 +1,35 @@
+﻿代码结构整理：实验/工具归位 + 目录索引
+
+## 移动（git mv，保留历史）
+- `dbg_rhand_0005s/`（26 文件）→ `debug/rhand_0005s/`
+  —— 这是 ring 黑票修正的发现过程（2X_01 的 R_hand 在 0005s 帧上的 exp3 系列），
+  性质是调试，不该占顶层
+- `baseline_detect_holds_walls.py` → `baselines/detect_holds_walls.py`
+- `baseline_hsv_summary.txt` → `baselines/hsv_summary.txt`
+- `baseline_v1_summary.txt` → `baselines/v1_summary.txt`
+- `calibrate.py` / `show_points.py` / `test_mp.py` → `tools/`
+- `dwpose_full_summary.txt`（8/13 的过时 7/8 版）→
+  `debug/old_dwpose_full_summary_20260813.txt`（`dwpose_exp/` 已有 10/5 的新版）
+
+## 新增
+- `baselines/README.md` — 目录索引 + 用法 + 对应论文 Table 1 的 4/10 与 6/10
+- `tools/README.md` — 目录索引 + 用法 + os._exit 说明
+
+## 更新引用
+- `baselines/detect_holds_walls.py`：输出路径改为**脚本所在目录**
+  （`v1_summary.txt` / `hsv_summary.txt`），docstring 同步
+- `LESSONS.md`：`dbg_rhand_0005s` → `debug/rhand_0005s`
+- `PIPELINE.md`：**文件地图重写** —— 原文还写着 `D:\Project\mediapipe`
+  （已不存在的路径）、`test_box_prompt_9.py` / `test_box_v2_9.py`（已删脚本）、
+  `weights/edge_sam_3x.pth`（不存在），全部按当前结构重写；正文两处
+  `test_mp.py` → `tools/test_mp.py`
+- `paper/tables_data.md`：`根目录 baseline_*.txt` → `baselines/`
+- `README.md`：结构树更新（新增 baselines/ tools/，标注 debug/rhand_0005s/）
+  + 说明"实验类代码全部集中在五个目录，仓库根只留主流程与文档"
+
+## 效果
+仓库根从 19 个文件降到 12 个（6 个主流程 .py + download_weights.py + 5 个文档），
+实验/工具/调试代码分别归入 baselines/ tools/ debug/ dwpose_exp/ vlm_exp/。
+
+验证：`git grep` 确认 *.md 里旧路径零残留；移动全部用 `git mv`（git 识别为
+rename，历史连续）。

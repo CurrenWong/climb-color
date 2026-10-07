@@ -1,42 +1,47 @@
 # 攀岩线路颜色识别 — 完整流程说明
 
-> 项目根目录：`D:\Project\mediapipe`
-> 当前时间：2026-08-13
-> 维护版本：v1 (route_color.py / test_mp.py) + v2 (edgesam_holds.py / test_edge_sam.py, 2026-08-13 简化版)
+> 项目根：`climb-color`（本地目录名可以是 `mediapipe2`，GitHub 仓库名为 `climb-color`）
+> 最后更新：2026-10-06
+> 生产路径：**v2**（`edgesam_holds.py` / `test_edge_sam.py`）；v1（`tools/test_mp.py`）保留作对照
 
 ---
 
 ## 文件地图
 
 ```
-D:\Project\mediapipe\
-├── 输入：                  img/1.jpg ~ 9.jpg
-├── 输出 v1：              result_route_*.jpg     ← test_mp.py
-├── 输出 v2：              result_edgesam_*.jpg   ← test_edge_sam.py
-├── 模型权重：             weights/
-│   ├── edge_sam.pth                              (~38 MB)  ← EdgeSAM 主权重
-│   ├── edge_sam_3x.pth                           (~38 MB)
-│   └── edge_sam_3x_{encoder,decoder}.onnx
-├── 一级代码：
-│   ├── test_mp.py                                v1 主程序（不动）
-│   ├── test_edge_sam.py                          v2 主程序
-│   ├── route_color.py                            v1 核心算法（detect_holds / 等）
-│   ├── edgesam_holds.py                          v2 核心算法（EdgeSamHoldSegmenter）
-│   ├── yolo_person_mask.py                       v2 子模块（PersonMasker / dilate / sample_edge_points）
-│   ├── edgesam_stub.py                           v2 子模块（绕过训练依赖）
-│   ├── calibrate.py / show_points.py            调试工具
-│   ├── test_box_prompt_9.py                      实验脚本（box + detect_holds，已废弃）
-│   └── test_box_v2_9.py                          实验脚本（box 不依赖 detect_holds，已并入生产）
-└── MediaPipe 模型：
-    ├── pose_landmarker_full.task
-    ├── pose_landmarker_{lite,heavy}.task
-    ├── hand_landmarker.task                       （README 说不能用）
-    └── efficientdet_lite0.tflite                 （README 说不能用）
+climb-color/
+├── 主流程（生产）
+│   ├── test_edge_sam.py          主入口：单帧识别 / 墙段聚合
+│   ├── edgesam_holds.py          EdgeSamHoldSegmenter（box prompt / 候选筛选 / ring 黑修正）
+│   ├── route_color.py            HSV 颜色分类 + 端点邻域像素投票（v1 v2 共用）
+│   ├── yolo_person_mask.py       PersonMasker（YOLO26m 人体掩码）
+│   └── edgesam_stub.py           绕过 mmdet/mmcv 训练依赖
+├── 输入 / 输出
+│   ├── img/                      单图测试集（1-9.jpg + 扩展 10-15）
+│   ├── img_xhs_walls/            视频墙段帧（10 墙段 / 65 帧，5s 间隔）
+│   ├── img_xhs_walls_1s/         加密采样实验帧（1s 间隔，gitignored）
+│   └── result_edgesam_*.jpg      单帧识别结果（gitignored）
+├── 实验与工具
+│   ├── baselines/                论文对比基线（仅 HSV 4/10、detect_holds 6/10）
+│   ├── tools/                    v1 主程序 test_mp.py、calibrate.py、show_points.py
+│   ├── dwpose_exp/               DWPose 实验子项目（含自己的 README）
+│   ├── vlm_exp/                  Qwen-VL 基线（5/10）
+│   └── debug/                    探索性脚本（rhand_0005s/ = ring 黑票修正的发现过程）
+├── 权重与模型（gitignored）
+│   ├── weights/edge_sam.pth      EdgeSAM 主权重
+│   ├── yolo26m-seg.pt            人体分割
+│   ├── yolox_l.onnx / dw-ll_ucoco_384.onnx        DWPose
+│   └── pose_landmarker_full.task MediaPipe Pose
+├── 文档
+│   ├── README.md / PIPELINE.md / LESSONS.md / CHANGELOG.md
+│   ├── paper/                    论文（中英 Markdown + 图 + 数据 + DOCX 导出脚本）
+│   └── docs/demo/                README 引用的 demo 图
+└── EdgeSAM/                      EdgeSAM 源码 clone（gitignored）
 ```
 
 ---
 
-## v1 pipeline（`test_mp.py`，长期存在）
+## v1 pipeline（`tools/test_mp.py`，保留作对照）
 
 ```
 img/1.jpg
@@ -290,7 +295,7 @@ result_edgesam_N.jpg
 
 | 文件 | 角色 | 备注 |
 |---|---|---|
-| `test_mp.py` | v1 main entry | 长期存在，不动 |
+| `tools/test_mp.py` | v1 main entry | 保留作对照，不动 |
 | `route_color.py` | v1 核心逻辑 | `detect_holds` / `detect_route_color` 等 |
 | `test_edge_sam.py` | v2 main entry | 调 3 个模型：YOLO26 / EdgeSAM / MediaPipe |
 | `edgesam_holds.py` | v2 核心逻辑 | `EdgeSamHoldSegmenter` 类 |
