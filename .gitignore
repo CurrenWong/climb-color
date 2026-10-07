@@ -1,4 +1,4 @@
-# Task files (MediaPipe models)
+﻿# Task files (MediaPipe models)
 *.task
 *.tflite
 
@@ -84,6 +84,6 @@ ENV/
 # cmd 2>nul 误生成的空文件
 $null
 # commit message scratch files
-_commit_msg*.txt
+_*_msg.txt
 # regenerable docx export (paper/make_docx.py)
 paper/*.docx
