@@ -877,11 +877,13 @@ retrieved against an index built from the other 33 photos and all 65
 video frames.  A match is judged by the *physical wall* the two images
 were taken of — not by their video-segment labels, because one physical
 wall can host several route segments: the one-second-apart burst
-`IMG_193753`/`IMG_193754` was shot from the same wall section yet its
-members were labelled `2X_wall_01` and `2X_wall_03` for the two routes
-that share that wall, and the pair `IMG_193617`/`IMG_193621` was
-annotated same-wall by the user although its members carry
-`3O_wall_03`/`3O_wall_04` labels.  On the 8 user-annotated pairs (6
+`IMG_193753`/`IMG_193754` was shot from the same wall section (the user
+visually confirmed the two viewports overlap in the middle and diverge
+at the edges, which is why the second photo also verifies against frames
+of `2X_wall_03`) yet its members were labelled `2X_wall_01` and
+`2X_wall_03` for the two routes that share that wall, and the pair
+`IMG_193617`/`IMG_193621` was annotated same-wall by the user although
+its members carry `3O_wall_03`/`3O_wall_04` labels.  On the 8 user-annotated pairs (6
 same-wall, 2 not-same-wall) the leave-one-out run is perfect: TP=6,
 FP=0, TN=2, FN=0 (100 % precision / recall).  Across all 34 queries,
 **34/34 retrieve only images that share at least one wall section with
