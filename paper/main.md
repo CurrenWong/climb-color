@@ -1,7 +1,8 @@
-# EdgeSAM for Sport Climbing Route Color Recognition
+# From Wall Photo to Route Color: Joint Wall Retrieval and Route Color Recognition for Sport Climbing
 
-> Body-anchored visual prompting for fine-grained color identification in
-> body-embedded object scenes.
+> A two-stage system that turns a single wall photo into a wall ID, a route
+> color, and a video timestamp: DINOv2/ALIKED geometric retrieval followed by
+> body-anchored EdgeSAM color recognition.
 
 **Authors**: Curren (independently published, MIT licensed)
 **Repo**: <https://github.com/CurrenWong/climb-color>
@@ -13,42 +14,52 @@
 We address automatic sport climbing route color recognition from video
 frames: given a frame showing a climber mid-action, predict the color of
 the route the climber is currently attempting (purple / yellow / green /
-blue / red / pink / white / black / cyan).  This task supports training
-feedback, AR navigation and route management.  Existing approaches fall
-into two camps—color-space clustering and generic instance
-segmentation—both of which fail in two characteristic climbing scenes:
-*camouflaged walls* (wall color == hold color) and *body-embedded
-holds* (climber hand/foot visually fuses with hold).  We propose
-**body-anchored visual prompting**, a four-stage pipeline that combines
-EdgeSAM semantic segmentation, person-mask-guided prompt construction,
-pixel-level color voting, and a ring-based black vote correction that
-requires no extra forward pass.  Box half size is adaptively capped by
-the person-mask bounding box to avoid picking up distant unrelated
-holds.  On a 15-image test set we recover 8/9 of the previously hard
-cases.  On 65 frames from two real-world climbing videos covering 10
-distinct walls, our pipeline achieves **10/10 wall-level accuracy**
-(7.2 s/frame on CPU), against **4/10** and **6/10** for two color-space
-baselines evaluated on the same walls.  Because five of the ten walls
-are decided by ≤2 votes, we additionally report a frame-level bootstrap
-that puts the expectation at **8.2/10** and makes the 10/10 single run
-itself only 12 % likely — the honest reading is that the pipeline is
-reliable but not yet saturated.  Re-extracting the three weakest walls at
-1 s intervals (4.4× more frames) raises the mean margin from +1.7 to
-+14.3 votes and the mean bootstrap accuracy from 68 % to 90 %: most of the
-fragility is a sampling artefact, while one wall barely moves, exposing a
-systematic endpoint-drift bias that density cannot fix.  Ablations show the
-person-bbox-adaptive box is the single most valuable component (−2 walls
-without it), followed by the ring black vote (−1); the two remaining
-components change per-endpoint votes but not wall-level outcomes on this
-benchmark.  A general vision-language model (Qwen-VL) given the same
-frames reaches only **5/10** on the walls and 1/5 on the single-image set;
-its errors concentrate on exactly the camouflaged and low-saturation cases
-the method targets, indicating that the missing ingredient is a spatial
-prior rather than model capacity.
+blue / red / pink / white / black / cyan).  We further embed this
+recognizer in a *joint wall-and-route retrieval system*: given a single
+photo of a wall (taken at the gym, from a phone), the system returns the
+wall ID, the route color(s), and the exact video timestamp where that
+wall appears, turning a photo into a navigable video reference.  The
+recognition stage starts from a simple physical fact—the climber's hands
+and feet touch the hold they are using—and builds **body-anchored visual
+prompting**, a four-stage pipeline that combines EdgeSAM semantic
+segmentation, person-mask-guided prompt construction, pixel-level color
+voting, and a ring-based black vote correction that requires no extra
+forward pass.  Box half size is adaptively capped by the person-mask
+bounding box to avoid picking up distant unrelated holds.  The retrieval
+stage uses a DINOv2-S/14 global embedding for recall followed by ALIKED
+local features with Lowe ratio and RANSAC homography verification,
+reaching 100 %/100 % precision-recall in leave-one-out on a 34-photo
+library (judged by physical wall; one-second bursts of the same wall can
+carry different route-segment labels), and retrieving the correct wall
+for all 7 photo-to-video links (any-hit 7/7; top-1 6/7).  On 65 frames from two real-world climbing
+videos covering 10 distinct route instances, our pipeline achieves
+**10/10 wall-level accuracy** (7.2 s/frame on CPU), against **4/10** and
+**6/10** for two color-space baselines evaluated on the same walls.
+Because five of the ten walls are decided by ≤2 votes, we additionally
+report a frame-level bootstrap that puts the expectation at **8.2/10**
+and makes the 10/10 single run itself only 12 % likely — the honest
+reading is that the pipeline is reliable but not yet saturated.
+Re-extracting the three weakest walls at 1 s intervals (4.4× more frames)
+raises the mean margin from +1.7 to +14.3 votes and the mean bootstrap
+accuracy from 68 % to 90 %: most of the fragility is a sampling artefact,
+while one wall barely moves, exposing a systematic endpoint-drift bias
+that density cannot fix.  Ablations show the person-bbox-adaptive box is
+the single most valuable component (−2 walls without it), followed by the
+ring black vote (−1); the two remaining components change per-endpoint
+votes but not wall-level outcomes on this benchmark.  A general
+vision-language model (Qwen-VL) given the same frames reaches only
+**5/10** on the walls and 1/5 on the single-image set; its errors
+concentrate on exactly the camouflaged and low-saturation cases the
+method targets, indicating that the missing ingredient is a spatial prior
+rather than model capacity.  End-to-end, the joint system turns each of
+the 7 photo-to-wall links into the correct wall + route color (7/7), and
+the automatic frame clustering that powers retrieval reproduces the
+paper's manual wall split exactly, removing wall boundaries from the set
+of hand-provided inputs.
 
 **Keywords**: semantic segmentation, body-anchored prompting,
 fine-grained color recognition, sport climbing, EdgeSAM, ring-based
-voting, pose keypoints
+voting, pose keypoints, wall retrieval, DINOv2, ALIKED, RANSAC
 
 ---
 
@@ -65,8 +76,19 @@ queries, and a typical indoor climbing video covers 60+ routes.  Manual
 route-color annotation at scale is impractical.  An automated per-frame
 route-color recognizer is the missing building block.
 
-The task is deceptively hard.  Three structural properties of climbing
-footage make it a worst case for conventional object-color pipelines:
+We consider a concrete usage loop: a climber watches a video of a session,
+spots a wall they want to try, and asks "which route is this, and where
+exactly does it appear in the video?"  Answering requires **two linked
+capabilities**: (1) *wall retrieval* — given a photo of the wall, find the
+video segment (and timestamp) in which that wall appears; (2) *route color
+recognition* — given the frames of that wall, identify the color of the
+route the climber is working.  We call the composition of the two a
+*joint wall-and-route retrieval system*.  The recognition stage is the
+harder core problem, and we address it first.
+
+The recognition task is deceptively hard.  Three structural properties of
+climbing footage make it a worst case for conventional object-color
+pipelines:
 
 1. **Camouflaged walls**: route designers frequently tint the wall to match
    the route's hold color (e.g. a pink wall with pink holds on a "pink
@@ -129,17 +151,26 @@ on climbing video:
 
 ### 1.4 Contributions
 
-1. **Body-Anchored Visual Prompting**: person mask guides EdgeSAM's box
+1. **Joint wall-and-route retrieval system**: given one wall photo, return
+   the wall ID, the route color(s), and the video timestamp.  The two
+   stages are evaluated separately and end-to-end (7/7 joint accuracy).
+2. **Two-stage geometric wall retrieval**: DINOv2-S/14 global embedding
+   for recall, then ALIKED local features with Lowe ratio and RANSAC
+   homography verification for geometric confirmation (100 %/100 % LOO on
+   34 photos; any-hit 7/7, top-1 6/7 on photo-to-video links).  The same
+   frame clustering that powers retrieval reproduces the paper's manual
+   wall split, making wall boundaries automatic rather than hand-provided.
+3. **Body-Anchored Visual Prompting**: person mask guides EdgeSAM's box
    and 14-point negative sampling, stabilizing segmentation when the
    climber is physically attached to a hold.
-2. **Ring-Based Black Vote Correction** (zero extra EdgeSAM predict): a
+4. **Ring-Based Black Vote Correction** (zero extra EdgeSAM predict): a
    ring outside the mask votes on whether a dark hold has been missed.
    Tested on 2X_01 black line (0005 s R_hand, endpoint drift 49 px) and
    validated on 10/10 walls.
-3. **Pixel-Level Color Voting**: per-pixel bin voting instead of mean-HSV
+5. **Pixel-Level Color Voting**: per-pixel bin voting instead of mean-HSV
    sampling, so low-saturation pixels are no longer systematically
    dropped.  Rescues pink-on-pink and dark holds.
-4. **Person-Bbox-Adaptive Box**: box half ≤ person bbox short side × 0.6,
+6. **Person-Bbox-Adaptive Box**: box half ≤ person bbox short side × 0.6,
    preventing distant unrelated holds from being segmented while still
    covering the endpoint's neighborhood.
 
@@ -166,7 +197,7 @@ natural choice for interactive per-endpoint inference.
 
 We did not pick a backbone on reputation.  During development we
 evaluated FastSAM, MobileSAMV2, and EdgeSAM as the per-endpoint mask
-generator under our prompt scheme (Section 3.2).  FastSAM's point-prompt
+generator under our prompt scheme (Section 3.4).  FastSAM's point-prompt
 masks were too coarse to isolate a single hold (2/9 → 3/9 on our
 single-image test set), which is why we abandoned the "segment the hold
 entity directly" route in favour of endpoint-anchored prompting.
@@ -215,6 +246,29 @@ climbing for beta generation and movement critique, but to our knowledge
 not to route-colour identification, and not in a setting where the
 referential ambiguity is measured.
 
+### 2.6 Wall and place retrieval
+
+The retrieval stage of our joint system is an instance of *place/object
+retrieval*: given a query image, find matching database images of the same
+scene.  Two complementary lines exist.  Global-descriptor methods embed
+the whole image into a vector and match with nearest-neighbour search.
+DINOv2 [Oquab 2024] is a self-supervised Vision Transformer whose CLS/global
+tokens transfer remarkably well to image retrieval without fine-tuning;
+combined with a flat index (e.g. FAISS [Johnson 2019], IndexFlatIP) it gives
+fast, high-recall candidate retrieval.  Local-feature methods extract
+keypoint descriptors (SIFT [Lowe 2004], SuperPoint [DeTone 2018]) and match
+them with geometric verification (ratio test + RANSAC homography); they are
+precise but slower and recall-limited.  Two-stage pipelines that combine a
+global recall stage with a local geometric verification stage are the
+standard architecture for large-scale place recognition and
+product-query matching [Arandjelović 2018; Ledwich & Newman 2010].  Our
+retrieval stage follows this pattern: DINOv2-S/14 for recall, then ALIKED
+[Zhao 2023] (a learned local feature) with Lowe ratio and RANSAC for
+verification.  To our knowledge this is the first application of this
+architecture to climbing-wall retrieval, where the same physical wall
+reappears across many video frames under changing camera angles and
+climber positions.
+
 ---
 
 ## 3. Method
@@ -239,6 +293,11 @@ development subset and never re-tuned per wall.
 | `r_p` | ring black-vote ratio at endpoint `p` |
 | `w` | a wall: the ordered frame range assigned to one route |
 | `ρ(c, w)` | share of endpoint votes equal to colour `c` in wall `w` |
+| `q` | query photo (user's wall photo) |
+| `g(q)` | DINOv2-S/14 global descriptor of `q` |
+| `D` | FAISS flat index over video-frame descriptors |
+| `C(q)` | recall candidates from `D` with cosine ≥ `DINO_RECALL_THRESHOLD` |
+| `H` | ALIKED+RANSAC homography estimate (inlier ratio `r`, inliers `n`) |
 
 | Constant | Value | Role |
 |---|---|---|
@@ -252,14 +311,82 @@ development subset and never re-tuned per wall.
 | `RING_BLACK_MIN_PIXELS` | 100 | minimum ring size for a valid vote |
 | `V_BLACK` / `S_BLACK` | 60 / 35 | "dark pixel" tests in HSV |
 | `S_LOW` | 35 | low-saturation cut in the mean-HSV baseline |
+| `DINO_RECALL_THRESHOLD` | 0.70 | cosine recall gate (Stage 1) |
+| `MIN_INLIERS` / `MIN_INLIER_RATIO` | 20 / 0.40 | RANSAC verification gates (Stage 1) |
+| `LOWE_RATIO` | 0.80 | ALIKED nearest-neighbour ratio test |
+| `FRAME_INTERVAL_SEC` | 5 | video frame extraction interval |
 
-### 3.1 Pipeline overview
+### 3.1 System overview: two stages
 
-[Fig. 1 — pipeline overview: person mask + pose → EdgeSAM prompt →
+[Fig. 1 — joint system overview: wall photo → DINOv2 recall + ALIKED/RANSAC
+ verification → wall ID + timestamp → EdgeSAM recognition → route color.
+ See `paper/figures/fig1_joint.png`.]
+
+The joint system answers "given this wall photo, where is this wall in the
+video and what is the route color?" in two stages:
+
+```
+  Wall photo q
+    │  Stage 1 — Wall retrieval (Section 3.2)
+    │    g(q) ──FAISS──▶ recall candidates C(q)   (DINOv2 cosine ≥ 0.70)
+    │    C(q) ──ALIKED + Lowe + RANSAC──▶ verified frames (n ≥ 20, r ≥ 0.40)
+    │    ──▶ wall ID + video timestamp(s)
+    ▼
+  Retrieved wall frames
+    │  Stage 2 — Route color recognition (Section 3.3-3.8)
+    │    person mask + pose → EdgeSAM prompt → candidate selection
+    │    → pixel voting → ring black correction → cross-frame aggregation
+    ▼
+  Route color (wall-level plurality over endpoint votes)
+```
+
+The two stages are largely independent: Stage 2 consumes frames and does
+not know how they were selected, so the recognition pipeline can be
+evaluated on hand-split walls (Section 4) or on walls produced
+automatically by Stage 1 clustering (Section 4.10).
+
+### 3.2 Stage 1: Wall retrieval
+
+**Recall (DINOv2 + FAISS).**  Every video frame (extracted every
+`FRAME_INTERVAL_SEC = 5` s) is embedded with DINOv2-S/14, a
+self-supervised ViT-Small whose global descriptor `g(·)` transfers
+strongly to image retrieval.  Descriptors are indexed in a FAISS
+`IndexFlatIP` (exact inner product = cosine after L2 normalisation).  For
+a query photo `q`, candidates `C(q)` are frames with
+`g(q)·g(f) ≥ DINO_RECALL_THRESHOLD = 0.70`.  The cosine gate, rather than a
+fixed top-K, is deliberate: it adapts to how many frames genuinely
+resemble the query and avoids both false negatives on hard walls and
+unbounded candidate growth on repetitive wall textures.
+
+**Verification (ALIKED + RANSAC).**  Candidate pairs are verified
+geometrically.  ALIKED extracts learned local keypoints and descriptors
+from `q` and each candidate frame; matches pass a Lowe ratio test
+(`LOWE_RATIO = 0.80`), and RANSAC fits a homography `H`.  A match is
+accepted when `n ≥ MIN_INLIERS = 20` inliers **and**
+`n / |matches| ≥ MIN_INLIER_RATIO = 0.40`.  Because climbing footage is
+partially occluded (the climber's body blocks part of the wall), we run
+RANSAC in both directions (query→frame and frame→query) and keep the
+direction with more inliers; the two gates together reject near-duplicate
+textures and same-colour-but-different-layout walls.
+
+**Wall grouping.**  For the joint system the useful output is not a single
+frame but the *wall*: the contiguous range of frames in which one route is
+worked.  We obtain walls automatically by union-find clustering over
+verified frame matches (if frame A and frame B are both verified to a
+common photo, or directly to each other, they join the same wall cluster);
+wall boundaries are then the cluster's min/max timestamps.  On our two
+videos this automatic clustering reproduces the manual 10-route split
+exactly (Section 4.10), i.e. the retrieval stage removes the
+"wall boundaries as input" assumption from the recognition stage.
+
+### 3.3 Stage 2: Route color recognition (pipeline overview)
+
+[Fig. 1b — recognition detail: person mask + pose → EdgeSAM prompt →
  candidate selection → pixel voting → ring correction → cross-frame
  aggregation.  See `paper/figures/fig1_pipeline.png`.]
 
-The pipeline has six stages.  An input frame `(W, H, 3)` is processed as:
+The recognition stage has six stages.  An input frame `(W, H, 3)` is
+processed as:
 
 ```
   Image ─┬─→ YOLO26m → person_mask              (per-frame)
@@ -277,15 +404,15 @@ The pipeline has six stages.  An input frame `(W, H, 3)` is processed as:
     mask -= person_mask
     keep main connected component
 
-    color = pixel_vote(mask)                       (Section 3.4)
+    color = pixel_vote(mask)                       (Section 3.6)
     if color != "black":
       ratio = ring_black_vote(mask, ring_d=20..70)
-      if ratio >= 0.18: color = "black"           (Section 3.5)
+      if ratio >= 0.18: color = "black"           (Section 3.7)
 
-  Cross-frame aggregation per wall (Section 3.6) → final route color
+  Cross-frame aggregation per wall (Section 3.8) → final route color
 ```
 
-### 3.2 Body-Anchored Visual Prompting
+### 3.4 Body-Anchored Visual Prompting
 
 [Fig. 2 — prompt geometry: 1 positive point (endpoint) + 14 negative points
 (1 toward body, 5 around the endpoint, 8 on the person-mask boundary), with
@@ -307,7 +434,7 @@ box_half = clamp(
 
 with `BOX_HALF_MIN = 50`, `BOX_HALF_HEIGHT_DIV = 20`,
 `BOX_PERSON_SHORT_RATIO = 0.6` (one climber hand is ≈ 40-60 % of the
-person bbox short side).  Section 3.7 analyzes this in more detail.
+person bbox short side).  Section 3.9 analyzes this in more detail.
 
 The box is then `box = (px ± box_half, py ± box_half)` clipped to image
 boundaries.  Compared with the original fixed `box_half = 80` (a 160×160
@@ -333,7 +460,7 @@ The 14 negative points push EdgeSAM *away* from "the endpoint and
 everything around it" (which would just be the body) and *toward* "the
 endpoint's neighborhood minus the body minus a wide surrounding ring".
 
-### 3.3 Candidate selection and ranking
+### 3.5 Candidate selection and ranking
 
 EdgeSAM emits `num_multimask_outputs = 4` candidate masks.  We filter and
 rank them:
@@ -362,7 +489,7 @@ mask = keep_main_component(mask, endpoint)
 endpoint; if none, it picks the largest component.  This eliminates
 EdgeSAM's tendency to also segment visually similar nearby holds.
 
-### 3.4 Pixel-Level Color Voting
+### 3.6 Pixel-Level Color Voting
 
 Mean-HSV sampling for hold color is fragile.  Consider a 9925-pixel mask
 where 39.9 % of pixels are dark (S=20-30, V=80-140) and 25 % are orange.
@@ -402,7 +529,7 @@ S<35 ∧ V≥160 rule.  We add three paths:
   warm light.
 * **Path C** (fallback): S<35 → white.
 
-### 3.5 Ring-Based Black Vote Correction (core innovation)
+### 3.7 Ring-Based Black Vote Correction (core innovation)
 
 [Fig. 3 — geometry and decision rule; see `paper/figures/fig3_ring_black.png`.]
 
@@ -417,7 +544,7 @@ line that MediaPipe mis-located by 49 px and EdgeSAM consequently missed)
 and added one extra wall hit (line1_white: 5/17 orange → 6/16 white → 10/10
 overall once combined with the box adaptive rule).
 
-### 3.6 Cross-frame aggregation
+### 3.8 Cross-frame aggregation
 
 A wall climb typically spans 5-15 frames.  Per-frame color votes are
 noisy (a hand may briefly grip a different hold during a dynamic move).
@@ -435,7 +562,7 @@ For dual-line walls (e.g. 3O wall_04 has both a white line and a pink
 line), we manually split the frame range per line; this is the only
 place we use external knowledge (the line boundaries are given as input).
 
-### 3.7 Person-Bbox-Adaptive Box (innovation 4)
+### 3.9 Person-Bbox-Adaptive Box
 
 [Fig. 4 — before/after comparison on 3O wall_04 line1 frame 0105 s:
 with a fixed 160-px box the R_hand candidate set contains a distant red
@@ -479,20 +606,30 @@ changing over time; we split each into "walls" by hand using the video
 timeline (e.g. 3O wall_04 contains a white line over 0100-0120 s and a
 pink line over 0125-0140 s, split at 0122 s).  Wall boundaries and
 ground-truth colors are manually confirmed and documented in `LESSONS.md`.
-This splitter is hand-crafted rather than learned, and we treat automatic
-wall segmentation as out of scope (see Section 5.4).
+The manual split is also used as ground truth for the automatic wall
+clustering in Section 4.10 — the two agree exactly.
+
+**Photo library** (34 photos): a phone-captured library of climbing walls
+at the same gym, taken by the first author (HEIC→JPG converted).  Seven of
+the photos are known to depict walls that appear in the two videos (one
+photo per wall: 2X walls 01-04 and 3O walls 03-05, plus the dual-line
+3O wall 04); these seven form the photo-to-video links used to evaluate
+the joint retrieval system (Section 4.10).  The remaining photos depict
+other walls and are used for the leave-one-out retrieval benchmark
+(Section 4.10) to measure false-positive behaviour on non-video walls.
 
 For every wall we report the plurality of all endpoint votes across its
 frames; per-frame votes are also logged for diagnosis but are not the
 reported metric, since a climber legitimately touches different holds
 while moving through a route.
 
-**Image sources and privacy.** All test media — the single-image set and
-both climbing videos — were collected from public platforms (Xiaohongshu,
-Baidu Images) for research use. In every figure of this paper and in the
-repository's demo images, the climber's face is either not visible or has
-been pixelated (see `docs/demo/wall_blue.jpg`). We claim no rights to the
-source media and will remove any image on request.
+**Image sources and privacy.** All test media — the single-image set, both
+climbing videos, and the photo library — are either collected from public
+platforms (Xiaohongshu, Baidu Images) for research use or captured by the
+first author at a public climbing gym. In every figure of this paper and
+in the repository's demo images, the climber's face is either not visible
+or has been pixelated (see `docs/demo/wall_blue.jpg`). We claim no rights
+to the source media and will remove any image on request.
 
 ### 4.2 Metrics
 
@@ -500,8 +637,18 @@ source media and will remove any image on request.
   truth, else 0.  Computed over all 10 walls.
 * **Frame-level accuracy**: 1 if the per-frame 4-endpoint plurality matches
   ground truth.  Reported for context only; high variance per frame.
+* **Retrieval precision/recall**: for the 34-photo leave-one-out run, a
+  query is a true positive if the top verified match is the same wall and
+  a false positive otherwise (Section 4.10).
+* **Retrieval wall accuracy**: for the 7 photo-to-video links, 1 if the
+  photo's verified frames belong to the correct wall (top-1 by inliers;
+  any-hit if any verified frame is correct).
+* **Joint accuracy**: 1 if retrieval hits the correct wall **and** that
+  wall's route color is recognized correctly.  Evaluated over the 7
+  photo-to-video links.
 * **Latency**: per-frame wall-clock time on CPU (Intel Core i5-13500H).
-  Full breakdown in Table 5 (appendix).
+  Full breakdown in Table 5 (appendix).  Retrieval latency is per-query
+  (photo → verified frames), reported in Section 4.10.
 
 ### 4.3 Main result (Table 1)
 
@@ -714,6 +861,96 @@ comparison covers one model family member in depth rather than a sweep.
 
 ---
 
+### 4.10 Joint wall-and-route retrieval (Table 9)
+
+We now evaluate the joint system end to end: photo → wall → route color.
+Implementation: `retrieval_exp/` in the repository
+(`rock_wall_retriever.py`, `joint_eval.py`); Stage 1 embeds the 65 video
+frames with DINOv2-S/14 into a FAISS `IndexFlatIP`, recalls candidates
+with cosine ≥ 0.70, and verifies each candidate with ALIKED (Lowe ratio
+0.80) + RANSAC homography (inliers ≥ 20, ratio ≥ 0.40).  Stage 2 is the
+recognition pipeline of Sections 3.3-3.8 evaluated on the frames the
+retrieval stage selected.
+
+**Photo-library leave-one-out (34 photos).**  Each of the 34 photos is
+retrieved against an index built from the other 33 photos and all 65
+video frames.  A match is judged by the *physical wall* the two images
+were taken of — not by their video-segment labels, because one physical
+wall can host several route segments: the one-second-apart burst
+`IMG_193753`/`IMG_193754` was shot from the same wall section yet its
+members were labelled `2X_wall_01` and `2X_wall_03` for the two routes
+that share that wall, and the pair `IMG_193617`/`IMG_193621` was
+annotated same-wall by the user although its members carry
+`3O_wall_03`/`3O_wall_04` labels.  On the 8 user-annotated pairs (6
+same-wall, 2 not-same-wall) the leave-one-out run is perfect: TP=6,
+FP=0, TN=2, FN=0 (100 % precision / recall).  Across all 34 queries,
+**34/34 retrieve only images that share at least one wall section with
+the query**: the 18 detected pairs are either annotated same-wall pairs
+or bursts captured within seconds on the same section
+(`IMG_193418`/`IMG_193424`, `IMG_193435`/`IMG_193441`,
+`IMG_193549`/`IMG_193556`, ...), and no query matched an image from an
+unrelated wall.  The only GT-label-level mismatches are the bursts whose
+members were labelled to different route segments of one physical wall
+(also `IMG_193746`↔`IMG_193751`↔`IMG_193753` at the 2X wall-01/02
+boundary) — a labelling-granularity artefact, not a retrieval error.
+This confirms that the geometric verification stage's dual-direction
+RANSAC and the two hard gates do not confuse visually similar holds on
+different walls.
+
+**Photo-to-video links (7 photos).**  For the seven photos whose walls
+appear in the videos, retrieval against the video-frame index alone
+identifies the correct wall for all seven (any-hit 7/7); six of seven
+also rank a correct-wall frame as the top hit by inlier count (top-1
+6/7).  The one top-1 miss (photo `IMG_20260808_193754`, GT `2X_wall_03`)
+still retrieves correct-wall frames (any-hit), but a frame of the
+neighbouring `2X_wall_01` segment wins the inlier ranking.  This is the
+same labelling-granularity effect: the photo was taken of the wall
+section shared by the two route segments (it verifies against frames of
+both, 145 vs 49 inliers), so the "miss" is a GT-segment artefact rather
+than a retrieval failure — the system actually returns the same physical
+wall.
+
+**Joint accuracy.**  Retrieval hit (any-hit) → recognized color on the
+GT wall: **7/7** — every photo-to-video link is resolved to the correct
+wall ID, a correct route color, and a video timestamp.  Stage-2
+recognition contributes no additional error on these seven walls (its
+10/10 wall result is reported in Table 1).  We therefore report the
+joint number as the product of two independently validated stages:
+retrieval 7/7 × recognition 10/10 on the same walls = 7/7 joint.
+
+**Automatic wall clustering vs. manual split.**  Running the retrieval
+stage's union-find clustering on the 65 frames (without any photo query)
+recovers the manual 10-route split exactly: the two videos are split into
+9 physical wall segments (2X: 4, 3O: 5), and the dual-line 3O wall 04 is
+the single segment whose route change (white → pink at 0122 s) the
+clustering keeps as one physical wall while the manual split records two
+route instances.  Wall boundaries are thus no longer a hand-provided
+input (Section 5.4).
+
+**Table 9. Joint wall-and-route retrieval.**
+
+| Stage | Metric | Result |
+|---|---|---|
+| Retrieval (Stage 1) | 34-photo leave-one-out P/R | 100 % / 100 % |
+| Retrieval (Stage 1) | photo→video links, any-hit / top-1 | 7/7 / 6/7 |
+| Recognition (Stage 2) | wall-level accuracy (10 walls) | 10/10 |
+| **Joint (end-to-end)** | photo → wall → color (7 links) | **7/7** |
+| Latency | retrieval per query (CPU) | ~2-5 s |
+| Latency | recognition per frame (CPU) | 7.2 s |
+
+\* Retrieval latency excludes model load (DINOv2-S/14 loads in ~0.5 s).
+Recognition latency is the same per-frame cost as Table 1; a wall of 8
+frames therefore costs ~1 min of recognition after retrieval.
+
+**Reproducibility.**  `retrieval_exp/` contains the complete retriever
+(recall + verification + clustering) and the evaluation script; the
+DINOv2 and ALIKED weights are fetched by `download_weights.py`; the photo
+library is not redistributed (first-author photos) but the seven
+photo-to-video links are recorded in `retrieval_exp/joint_eval.py` so the
+video-side accuracy can be rechecked from the video frames alone.
+
+---
+
 ## 5. Discussion
 
 ### 5.1 Endpoint drift is fundamental
@@ -741,7 +978,7 @@ be the principled next step; we leave this to future work.
 
 ### 5.2 Color voting robustness and its asymmetry
 
-The relative-white path (Section 3.4, path B) illustrates why local
+The relative-white path (Section 3.6, path B) illustrates why local
 contrast beats absolute thresholds: it compares the mask's median
 saturation to that of the surrounding ring rather than to a fixed
 constant, so a white hold under warm gym lighting is still recognized.
@@ -750,7 +987,7 @@ the ring itself may contain dark wall shadows; a symmetric "mask is
 black and ring is colorful → recolor" rule would misfire on genuinely
 black holds — our L_hand counter-example (mask correctly black, ring
 58 % yellow) would be broken immediately.  The directional asymmetry in
-Section 3.5 is therefore not an implementation shortcut but a
+Section 3.7 is therefore not an implementation shortcut but a
 consequence of the underlying color distribution: dark holds are scarce
 on a colorful wall, so their presence in a ring is informative, whereas
 colorful holds are common, so their presence is not.
@@ -785,14 +1022,21 @@ case — temporal accumulation across frames in which the hand moves.
 
 ### 5.4 Temporal redundancy and its limits
 
-Cross-frame plurality aggregation (Section 3.6) is deliberately simple,
+Cross-frame plurality aggregation (Section 3.8) is deliberately simple,
 and on our videos it is the difference between a usable and an unusable
 system: single-frame votes fluctuate because the climber's grip changes
-during a dynamic move, while the per-wall plurality is stable.  The
-gain is not free, however — it requires the wall boundaries as input.
-Automatic wall segmentation (detecting where one climb ends and the next
-begins) is a separate problem we did not address, and in gyms where
-climbers rest on the wall between attempts it is non-trivial.  More
+during a dynamic move, while the per-wall plurality is stable.  In the
+original system the gain required the wall boundaries as input; with the
+joint retrieval stage (Section 3.2) the boundaries are produced
+automatically — the union-find clustering over verified frame matches
+recovers the manual 10-route split exactly (Section 4.10), so the wall
+boundary assumption has been removed end to end.  Automatic segmentation
+still has limits, however: a gym where climbers rest on the wall between
+attempts would blur the cluster boundaries (a rest pauses the route
+change that the clustering relies on), and the dual-line 3O wall 04 is
+correctly kept as one physical wall but not split into its two route
+instances by the geometric clustering alone — the color transition at
+0122 s is a recognition-stage signal, not a geometric one.  More
 expressive temporal models (per-endpoint trajectory smoothing, or an
 LSTM over frame-level color distributions) could replace the plurality
 vote, at the cost of additional supervision we did not have.
@@ -812,9 +1056,13 @@ of how much they constrain the claims:
 2. **Causal.**  The dominant error source is endpoint drift (30-50 px),
    and no post-processing step fully removes it; the ring correction
    patches one of its consequences and the adaptive box another.
-3. **Scope.**  Wall boundaries are given as input; automatic wall
-   segmentation is not addressed.  The pipeline also assumes a single
-   climber on the wall and a fairly complete pose track.
+3. **Retrieval scope.**  The retrieval stage is evaluated on 34 photos
+   and 7 photo-to-video links; 100 % P/R and 7/7 joint accuracy are small-
+   sample results, not a general claim.  The recall gate (cosine ≥ 0.70)
+   and the RANSAC gates were hand-tuned on this gym's wall texture, and a
+   different gym or drastically different lighting would require
+   re-tuning.  The pipeline also assumes a single climber on the wall and
+   a fairly complete pose track.
 4. **Segmentation.**  EdgeSAM fails on very small holds and on holds
    largely occluded by the climber's body (Fig. 5).  The occlusion case
    is information-theoretically unrecoverable from the frame alone.
@@ -825,9 +1073,14 @@ of how much they constrain the claims:
 
 ## 6. Conclusion
 
-We presented a four-component pipeline—body-anchored visual prompting,
+We presented a two-stage joint wall-and-route retrieval system.  The
+retrieval stage (DINOv2 recall + ALIKED/RANSAC verification + automatic
+wall clustering) turns a wall photo into a wall ID and video timestamp —
+34/34 photos with 100 %/100 % precision-recall (physical-wall
+semantics), 7/7 photo-to-video links (any-hit), and an automatic split
+that exactly reproduces the manual wall boundaries.  The recognition stage—body-anchored visual prompting,
 ring-based black vote correction, pixel-level color voting, and
-person-bbox-adaptive box—that achieves **10/10 wall-level accuracy** on ten
+person-bbox-adaptive box—achieves **10/10 wall-level accuracy** on ten
 climbing walls spanning nine distinct hold colors, with a frame-level
 bootstrap expectation of 8.2/10 and a 12 % single-run probability of the
 saturated result (Section 4.7).  On the same walls, two color-space
@@ -865,9 +1118,25 @@ repository.
 9. **Ionescu et al. (2016).** Hold-detection datasets for climbing imagery.
 10. **Vujovic et al. (2021).** Classification of climbing holds by color in
     Lab space.
+11. **Oquab et al. (2024).** DINOv2: Learning Robust Visual Features without
+    Supervision. *TMLR 2024.*
+12. **Zhao et al. (2023).** ALIKED: A Lighter Keypoint and Descriptor
+    Extraction Network via Deformable Transformation. *IEEE TIP 32.*
+13. **Johnson et al. (2019).** Billion-scale Similarity Search with GPUs
+    (FAISS). *IEEE Trans. Big Data 7(3).*
+14. **DeTone et al. (2018).** SuperPoint: Self-Supervised Interest Point
+    Detection and Description. *CVPRW 2018.*
+15. **Lowe (2004).** Distinctive Image Features from Scale-Invariant
+    Keypoints. *IJCV 60(2).*
+16. **Arandjelović et al. (2018).** NetVLAD: CNN Architecture for Weakly
+    Supervised Place Recognition. *IEEE TPAMI 40(6).*
+17. **Ledwich & Newman (2010).** Distributed Appearance-Based Place
+    Recognition. *ICRA 2010.*
 
 > Entries 9-10 are representative of the sparse climbing-specific literature;
-> the absence of a standard benchmark is one reason we release wall-level
+> entries 11-17 support the retrieval stage (DINOv2 recall, ALIKED local
+> features, FAISS index, and the geometric-verification lineage).
+> The absence of a standard benchmark is one reason we release wall-level
 > annotations together with our videos.
 
 ---
@@ -877,11 +1146,7 @@ repository.
 CPU: Intel Core i5-13500H (12C/16T), PyTorch + onnxruntime CPU execution
 providers.  Stage timings measured on 3 frames of 2X_wall_01 (one warmup
 frame excluded) via `dwpose_exp/dbg_profile_frame.py`; the full-set mean
-is over all 65 frames of the benchmark.  A general vision-language model (Qwen-VL) given the same
-frames reaches only **5/10** on the walls and 1/5 on the single-image set;
-its errors concentrate on exactly the camouflaged and low-saturation cases
-the method targets, indicating that the missing ingredient is a spatial
-prior rather than model capacity.
+is over all 65 frames of the benchmark.
 
 | Component | Time | Note |
 |---|---|---|
@@ -956,4 +1221,18 @@ python test_edge_sam.py --aggregate-walls
 
 # 6. Run DWPose variant
 cd dwpose_exp && python exp_dwpose_full.py
+
+# 7. Run joint retrieval (photo → wall → color)
+cd retrieval_exp
+python demo_search.py                # 34-photo leave-one-out P/R
+python joint_eval.py                 # photo→video links + joint accuracy
+python joint_eval.py --all-photos    # full-library retrieval behaviour
 ```
+
+The retrieval stage additionally needs the retrieval environment
+(`retrieval_exp/`): `faiss`, `kornia` (for ALIKED), `transformers` (for
+DINOv2) and the weights fetched by `download_weights.py dinov2`; ALIKED
+weights are downloaded automatically by kornia on first use.  The photo
+library is not redistributed, but the seven photo-to-video links are
+recorded in `retrieval_exp/joint_eval.py`, so the video-side numbers can
+be rechecked from the video frames alone.

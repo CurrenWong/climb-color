@@ -48,6 +48,14 @@ WEIGHTS = {
         None,
         'DWPose ONNX 模型 (yolox_l 206MB + dw-ll_ucoco 128MB)'
     ),
+    'dinov2': (
+        # DINOv2-S/14 全局特征(检索器 Stage 1)。下载整个目录到 weights/dinov2-small/
+        # 需要 config.json + preprocessor_config.json + model.safetensors
+        'dinov2_dir',
+        'https://huggingface.co/facebook/dinov2-small/resolve/main/model.safetensors',
+        'https://ghfast.top/https://huggingface.co/facebook/dinov2-small/resolve/main/model.safetensors',
+        'DINOv2-S/14 全局特征权重 (~88MB,检索器)'
+    ),
 }
 
 
@@ -86,6 +94,45 @@ def download_one(name: str) -> bool:
         )
         ok2 = download(url, ROOT / 'weights/dw-ll_ucoco_384.onnx')
         return ok1 and ok2
+
+    if name == 'dinov2':
+        # 特殊: 需要整个目录(3 个文件)到 weights/dinov2-small/
+        dest_dir = ROOT / 'weights/dinov2-small'
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        files = [
+            ('config.json',
+             'https://huggingface.co/facebook/dinov2-small/resolve/main/config.json', None),
+            ('preprocessor_config.json',
+             'https://huggingface.co/facebook/dinov2-small/resolve/main/preprocessor_config.json', None),
+            ('model.safetensors',
+             'https://huggingface.co/facebook/dinov2-small/resolve/main/model.safetensors',
+             'https://ghfast.top/https://huggingface.co/facebook/dinov2-small/resolve/main/model.safetensors'),
+        ]
+        ok = True
+        for fname, f_url, f_mirror in files:
+            fdest = dest_dir / fname
+            if fdest.exists():
+                print(f"  ✓ 已存在: {fname} ({fdest.stat().st_size // 1024 // 1024}MB)")
+                continue
+            print(f"  ↓ 下载: {fname}")
+            try:
+                urllib.request.urlretrieve(f_url, fdest)
+                print(f"  ✓ 完成: {fname} ({fdest.stat().st_size // 1024 // 1024}MB)")
+            except Exception as e:
+                print(f"  ✗ 失败: {e}")
+                if f_mirror:
+                    print(f"  ↻ 回退到镜像...")
+                    try:
+                        urllib.request.urlretrieve(f_mirror, fdest)
+                        print(f"  ✓ 完成: {fname} ({fdest.stat().st_size // 1024 // 1024}MB)")
+                    except Exception as e2:
+                        print(f"  ✗ 镜像也失败: {e2}")
+                        ok = False
+                        if fdest.exists():
+                            fdest.unlink()
+                else:
+                    ok = False
+        return ok
 
     # 优先尝试直连，失败回退 mirror
     if download(url, dest):

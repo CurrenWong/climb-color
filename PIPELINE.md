@@ -1,8 +1,9 @@
 # 攀岩线路颜色识别 — 完整流程说明
 
 > 项目根：`climb-color`（本地目录名可以是 `mediapipe2`，GitHub 仓库名为 `climb-color`）
-> 最后更新：2026-10-06
+> 最后更新：2026-10-11
 > 生产路径：**v2**（`edgesam_holds.py` / `test_edge_sam.py`）；v1（`tools/test_mp.py`）保留作对照
+> 联合检索：**retrieval_exp/**（DINOv2 召回 + ALIKED/RANSAC 验证：照片 → 墙段 → 颜色，见 paper §4.10）
 
 ---
 
@@ -18,6 +19,7 @@ climb-color/
 │   └── edgesam_stub.py           绕过 mmdet/mmcv 训练依赖
 ├── 输入 / 输出
 │   ├── img/                      单图测试集（1-9.jpg + 扩展 10-15）
+│   ├── img_xhs/                  视频 5s 抽帧（65 帧，检索索引侧）
 │   ├── img_xhs_walls/            视频墙段帧（10 墙段 / 65 帧，5s 间隔）
 │   ├── img_xhs_walls_1s/         加密采样实验帧（1s 间隔，gitignored）
 │   └── result_edgesam_*.jpg      单帧识别结果（gitignored）
@@ -26,12 +28,14 @@ climb-color/
 │   ├── tools/                    v1 主程序 test_mp.py、calibrate.py、show_points.py
 │   ├── dwpose_exp/               DWPose 实验子项目（含自己的 README）
 │   ├── vlm_exp/                  Qwen-VL 基线（5/10）
+│   ├── retrieval_exp/            联合墙检索（rock_wall_retriever / joint_eval / demo_search）
 │   └── debug/                    探索性脚本（rhand_0005s/ = ring 黑票修正的发现过程）
 ├── weights/                      全部模型权重（gitignored）
 │   ├── edge_sam.pth              EdgeSAM 主权重
 │   ├── yolo26m-seg.pt            人体分割
 │   ├── yolox_l.onnx / dw-ll_ucoco_384.onnx        DWPose
-│   └── pose_landmarker_full.task MediaPipe Pose
+│   ├── pose_landmarker_full.task MediaPipe Pose
+│   └── dinov2-small/             DINOv2-S/14 检索权重（download_weights.py dinov2）
 ├── 文档
 │   ├── README.md（英文）/ README_zh.md（中文）/ PIPELINE.md / LESSONS.md / CHANGELOG.md
 │   ├── paper/                    论文（中英 Markdown + 图 + 数据 + DOCX 导出脚本）

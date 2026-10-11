@@ -149,6 +149,7 @@ climb-color/
 ├── tools/                      # 人工核对与校准工具（v1 主程序 / 校准 / 点检查）
 ├── dwpose_exp/                 # DWPose 实验子项目（与生产路径解耦）
 ├── vlm_exp/                    # 视觉大模型基线对比（Qwen-VL 5/10）
+├── retrieval_exp/              # 联合墙检索（DINOv2+ALIKED/RANSAC：照片 → 墙 → 颜色）
 ├── debug/                      # 探索性脚本（按惯例保留）
 │   └── rhand_0005s/            #   └ ring 黑票修正的发现过程（exp3 系列）
 ├── weights/                    # 全部模型权重（EdgeSAM / YOLO / DWPose / MediaPipe，gitignored）
@@ -159,7 +160,7 @@ climb-color/
 ```
 
 > 实验类代码全部集中在 `baselines/` `tools/` `debug/` `dwpose_exp/` `vlm_exp/`
-> 五个目录，仓库根只保留主流程代码与文档。
+> `retrieval_exp/` 六个目录，仓库根只保留主流程代码与文档。
 
 ---
 

@@ -160,6 +160,7 @@ climb-color/
 ├── tools/                      # manual inspection & calibration tools
 ├── dwpose_exp/                 # DWPose experiment sub-project (decoupled from production)
 ├── vlm_exp/                    # vision-language-model baseline (Qwen-VL 5/10)
+├── retrieval_exp/              # joint wall retrieval (DINOv2+ALIKED/RANSAC: photo → wall → color)
 ├── debug/                      # exploratory scripts (kept by convention)
 │   └── rhand_0005s/            #   └ how the ring black-vote fix was found (exp3 series)
 ├── weights/                    # all model weights (gitignored)
@@ -169,8 +170,9 @@ climb-color/
 └── CHANGELOG.md  LICENSE  README.md  README_zh.md
 ```
 
-> All experiment code lives in `baselines/ tools/ debug/ dwpose_exp/ vlm_exp/`; the
-> repository root keeps only the production pipeline and documentation.
+> All experiment code lives in `baselines/ tools/ debug/ dwpose_exp/ vlm_exp/
+> retrieval_exp/`; the repository root keeps only the production pipeline and
+> documentation.
 
 ---
 
