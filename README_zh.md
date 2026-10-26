@@ -193,6 +193,7 @@ climb-color/
 - **[PIPELINE.md](PIPELINE.md)** — 完整管线技术细节
 - **[LESSONS.md](LESSONS.md)** — 工程经验（EdgeSAM 集成、姿态模型对比、阈值推导等）
 - **[dwpose_exp/README.md](dwpose_exp/README.md)** — DWPose 实验子项目
+- **[docs/wechat/](docs/wechat/)** — 公众号文章源文件（Markdown + 配图）
 
 ---
 

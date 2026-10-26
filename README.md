@@ -211,6 +211,7 @@ Details in [`PIPELINE.md`](PIPELINE.md).
 - **[PIPELINE.md](PIPELINE.md)** — full pipeline details
 - **[LESSONS.md](LESSONS.md)** — engineering notes (EdgeSAM integration, pose-model comparison, threshold derivation)
 - **[dwpose_exp/README.md](dwpose_exp/README.md)** — DWPose experiment sub-project
+- **[docs/wechat/](docs/wechat/)** — WeChat article source (markdown + figures) for the Chinese write-up
 
 ---
 
